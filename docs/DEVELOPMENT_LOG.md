@@ -246,7 +246,7 @@ const response = await fetch(META_API_MOCK, { signal: AbortSignal.timeout(8000) 
 ## Conformidade Final com o Desafio
 
 | # | Requisito (desafio.md) | Implementação | Status |
-|---|---|---|---|---|
+|---|---|---|---|
 | 1 | `POST /webhook/violation` | `src/infrastructure/http/routes/webhook.ts` → `ProcessViolationUseCase` | ✅ |
 | 2 | Validação com Zod | `src/application/dtos/violation.dto.ts` — enums + ISO 8601 + `.min(1)` | ✅ |
 | 3 | HTTP 400 com erros detalhados | `ValidationError` com `details: ZodError.issues` | ✅ |
