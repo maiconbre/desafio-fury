@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { violationSchema } from '../src/schemas/violation.js'
+import { violationSchema } from '../src/application/dtos/violation.dto.js'
 
 const validPayload = {
   adId: 'ad-123',

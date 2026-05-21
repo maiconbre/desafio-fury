@@ -1,7 +1,7 @@
 import { Worker } from 'bullmq'
 import { connection } from './connection.js'
-import { logger } from '../lib/logger.js'
-import type { ViolationPayload, TakedownResult } from '../schemas/violation.js'
+import { logger } from '../logging/logger.js'
+import type { ViolationPayload, TakedownResult } from '../../domain/models/violation.js'
 
 const META_API_MOCK = 'https://jsonplaceholder.typicode.com/posts/1'
 

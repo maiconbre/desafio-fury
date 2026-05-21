@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { ViolationPayload } from '../src/schemas/violation.js'
+import type { ViolationPayload } from '../src/domain/models/violation.js'
 
-vi.mock('../src/queue/connection.js', () => ({
+vi.mock('../src/infrastructure/queue/connection.js', () => ({
   connection: {},
 }))
 
@@ -40,7 +40,7 @@ describe('processJob', () => {
       new Response(JSON.stringify({ id: 1 }), { status: 200 }),
     )
 
-    const { processJob } = await import('../src/queue/worker.js')
+    const { processJob } = await import('../src/infrastructure/queue/worker.js')
     const result = await processJob({ data: validData })
 
     expect(result).toEqual({ status: 200, ok: true })
@@ -51,7 +51,7 @@ describe('processJob', () => {
       new Response(null, { status }),
     )
 
-    const { processJob } = await import('../src/queue/worker.js')
+    const { processJob } = await import('../src/infrastructure/queue/worker.js')
     await expect(processJob({ data: validData })).rejects.toThrow(
       `Meta API responded with ${status}`,
     )
@@ -60,7 +60,7 @@ describe('processJob', () => {
   it('throws on network error', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('Network timeout'))
 
-    const { processJob } = await import('../src/queue/worker.js')
+    const { processJob } = await import('../src/infrastructure/queue/worker.js')
     await expect(processJob({ data: validData })).rejects.toThrow('Network timeout')
   })
 })

@@ -1,11 +1,16 @@
 import Fastify from 'fastify'
 import { env } from './config/env.js'
-import { webhookRoutes } from './routes/webhook.js'
-import { jobRoutes } from './routes/jobs.js'
-import { worker } from './queue/worker.js'
-import { takedownQueue } from './queue/queue.js'
-import { connection } from './queue/connection.js'
-import { errorHandler } from './lib/error-handler.js'
+import { webhookRoutes } from './infrastructure/http/routes/webhook.js'
+import { jobRoutes } from './infrastructure/http/routes/jobs.js'
+import { worker } from './infrastructure/queue/worker.js'
+import { takedownQueue } from './infrastructure/queue/queue.js'
+import { connection } from './infrastructure/queue/connection.js'
+import { errorHandler } from './infrastructure/http/error-handler.js'
+
+// Importações do Clean Architecture
+import { BullMQTakedownQueue } from './infrastructure/queue/bullmq-takedown-queue.js'
+import { ProcessViolationUseCase } from './application/use-cases/process-violation.js'
+import { GetJobStatusUseCase } from './application/use-cases/get-job-status.js'
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL ?? 'info' } })
 
@@ -23,8 +28,14 @@ app.get('/health', async (_, reply) => {
   }
 })
 
-app.register(webhookRoutes)
-app.register(jobRoutes)
+// Composition Root
+const queueAdapter = new BullMQTakedownQueue(takedownQueue)
+const processViolationUseCase = new ProcessViolationUseCase(queueAdapter)
+const getJobStatusUseCase = new GetJobStatusUseCase(queueAdapter)
+
+// Registrar as rotas injetando as dependências
+app.register(webhookRoutes, { processViolationUseCase })
+app.register(jobRoutes, { getJobStatusUseCase })
 
 async function shutdown(): Promise<void> {
   app.log.info('Shutting down gracefully...')

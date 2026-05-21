@@ -12,9 +12,6 @@ O desenvolvimento foi feito com auxílio do **Claude (Anthropic)** via Antigravi
 2. **Planejamento da arquitetura** — definição de camadas, tecnologias e ordem de implementação
 3. **Implementação fase a fase** — scaffolding → schemas → queue → services → rotas → servidor → testes
 4. **Revisão crítica autônoma** — auditoria linha a linha contra cada requisito, identificação de bugs e gaps
-5. **Aplicação de melhorias** — de Pleno para Sênior, com trade-offs documentados
-
-> A IA foi usada como ferramenta de desenvolvimento, não como substituição de raciocínio. Todas as decisões técnicas foram avaliadas, questionadas e refinadas consciente e criticamente.
 
 ---
 
@@ -74,6 +71,28 @@ O desenvolvimento foi feito com auxílio do **Claude (Anthropic)** via Antigravi
 - `docs/DEVELOPMENT_LOG.md` (este arquivo)
 - Script `scripts/test-api.ps1` com 31 asserções E2E contra a API real
 
+### Fase 9 — Refatoração para Clean Architecture
+
+Após a entrega, o projeto foi refatorado para seguir os princípios da **Clean Architecture** (DIP, SRP, domínio puro):
+
+- `src/domain/` — camada pura sem dependências externas: tipos TypeScript, interfaces (ports), erros de domínio
+- `src/application/` — casos de uso com injeção de dependência via construtor + DTOs Zod
+- `src/infrastructure/` — implementações concretas (BullMQ, Fastify, Pino)
+- `src/server.ts` — Composition Root: wire de dependências manual
+- `tests/use-cases/` — testes unitários com `InMemoryTakedownQueue` (fake repository)
+
+| Mudança | Antes | Depois |
+|---------|-------|--------|
+| Zod schemas | `src/schemas/violation.ts` | `src/application/dtos/violation.dto.ts` |
+| Erros | `src/lib/error.ts` | `src/domain/errors/app-error.ts` |
+| Logger | `src/lib/logger.ts` | `src/infrastructure/logging/logger.ts` |
+| Lógica de negócio | `src/services/*.service.ts` | `src/application/use-cases/*.ts` |
+| Fila | `src/queue/` | `src/infrastructure/queue/` (com adapter) |
+| Rotas | `src/routes/` | `src/infrastructure/http/routes/` |
+| Error handler | `src/lib/error-handler.ts` | `src/infrastructure/http/error-handler.ts` |
+| Testes services | `tests/services/` (BullMQ mockado) | `tests/use-cases/` (InMemory adapter) |
+| Testes integração | BullMQ mockado via `vi.mock` | `InMemoryTakedownQueue` puro |
+
 ---
 
 ## Decisões de Planejamento
@@ -85,15 +104,13 @@ Decisões tomadas **antes** da implementação:
 | Fastify | Express | Nativo com TypeScript, mais performático, menos boilerplate |
 | `fetch` nativo | `axios` | Node 18+ já inclui, zero dependência extra |
 | Zod sem `@fastify/type-provider-zod` | Plugin do Fastify | Mais explícito, menos acoplamento, mais testável |
-| Funções > Classes | OOP / DI Container | SRP puro sem abstração desnecessária para o escopo |
+| DIP manual (construtor) | DI Container (Inversify) | Sem dependência extra, explícito e testável |
 | Job ID `adId_tenantId` | UUID aleatório | Permite dedup nativo no BullMQ e consulta direta sem mapeamento |
 | Sem autenticação / SQL / frontend | — | Explicitamente fora do escopo (desafio.md, linha 74) |
 
 **O que foi explicitamente evitado:**
 
-- DDD / Clean Architecture em camadas
 - DI Container (Inversify, tsyringe)
-- Classes Repository / Entity / UseCase
 - JSDoc (código autoexplicativo)
 - OpenAPI / Swagger
 - Rate limiting, CI/CD, métricas
@@ -102,25 +119,11 @@ Decisões tomadas **antes** da implementação:
 
 ## Revisão Crítica e Melhorias
 
-Após a primeira versão funcional, foi feita uma **auditoria linha a linha** contra cada requisito do desafio. Três gaps foram identificados:
+Após a primeira versão funcional, foi feita uma **auditoria linha a linha** contra cada requisito do desafio. Dois gaps foram identificados:
 
 ---
 
-### Bug 1 — README com contratos de erro divergentes (corrigido)
-
-**Problema:** O README documentava nomes de erro diferentes dos retornados pela API real.
-
-| Situação | README errado | API real (correto) |
-|---|---|---|
-| 400 | `"error": "Validation failed"` | `"error": "Bad request"` |
-| 409 | `"error": "Duplicate job"` | `"error": "Conflict"` |
-| 404 | `"error": "Job not found"` | `"error": "Not found"` |
-
-**Correção:** README atualizado para refletir o contrato real da API.
-
----
-
-### Bug 2 — Race condition silenciosa na idempotência (aceito com trade-off)
+### Bug 1 — Race condition silenciosa na idempotência (aceito com trade-off)
 
 **Problema:** A verificação de idempotência e o enfileiramento não são atômicos:
 
@@ -139,7 +142,7 @@ Dois requests simultâneos com o mesmo `adId+tenantId` podem ambos passar pelo `
 
 ---
 
-### Bug 3 — Graceful shutdown travado com Redis offline (corrigido)
+### Bug 2 — Graceful shutdown travado com Redis offline (corrigido)
 
 **Problema:**
 
@@ -231,24 +234,28 @@ const response = await fetch(META_API_MOCK, { signal: AbortSignal.timeout(8000) 
 | Logger Pino estruturado (zero console.log) | ✅ |
 | README com instruções completas e curl examples | ✅ |
 | `docker-compose.yml` funcional | ✅ |
-| 49 testes unitários passando | ✅ |
+| 50 testes unitários passando | ✅ |
 | 31 asserções E2E passando (API real) | ✅ |
+| Clean Architecture: domínio puro (zero dependências externas) | ✅ |
+| Clean Architecture: DIP com port + adapter | ✅ |
+| Clean Architecture: Composition Root | ✅ |
+| Testes de use case com InMemory adapter (sem mocks de infra) | ✅ |
 
 ---
 
 ## Conformidade Final com o Desafio
 
 | # | Requisito (desafio.md) | Implementação | Status |
-|---|---|---|---|
-| 1 | `POST /webhook/violation` | `src/routes/webhook.ts` | ✅ |
-| 2 | Validação com Zod | `src/schemas/violation.ts` — enums + ISO 8601 + `.min(1)` | ✅ |
+|---|---|---|---|---|
+| 1 | `POST /webhook/violation` | `src/infrastructure/http/routes/webhook.ts` → `ProcessViolationUseCase` | ✅ |
+| 2 | Validação com Zod | `src/application/dtos/violation.dto.ts` — enums + ISO 8601 + `.min(1)` | ✅ |
 | 3 | HTTP 400 com erros detalhados | `ValidationError` com `details: ZodError.issues` | ✅ |
-| 4 | BullMQ + Redis (Docker) | `src/queue/` + `docker-compose.yml` | ✅ |
+| 4 | BullMQ + Redis (Docker) | `src/infrastructure/queue/` + `docker-compose.yml` | ✅ |
 | 5 | Worker → JSONPlaceholder | `fetch` com `AbortSignal.timeout(8000)` | ✅ |
 | 6 | Tratamento 2xx | `{ status, ok: true }` tipado via `takedownResultSchema` | ✅ |
 | 7 | Tratamento 4xx/5xx | `throw new Error()` → retry automático BullMQ | ✅ |
 | 8 | Timeout/rede | `AbortSignal.timeout(8000)` captura ambos | ✅ |
-| 9 | `GET /jobs/:id` | `src/routes/jobs.ts` | ✅ |
+| 9 | `GET /jobs/:id` | `src/infrastructure/http/routes/jobs.ts` → `GetJobStatusUseCase` | ✅ |
 | 10 | Estrutura `{ jobId, status, attempts, result, error }` | Exata conforme spec | ✅ |
 | 11 | 404 se job inexistente | `NotFoundError` → handler global → 404 | ✅ |
 | 12 | Backoff exponencial, máx 3 tentativas | `attempts: 3`, `type: 'exponential'`, `delay: 2000` | ✅ |
@@ -269,3 +276,18 @@ const response = await fetch(META_API_MOCK, { signal: AbortSignal.timeout(8000) 
 | Correlation ID nos logs (AsyncLocalStorage) | ~1h | Tracing distribuído fora do escopo |
 | Teste de graceful shutdown | ~30min | Simular SIGTERM em teste é frágil por natureza |
 | Validação do valor de `LOG_LEVEL` | ~15min | Aceita valores inválidos silenciosamente — risco baixo |
+
+---
+
+## Clean Architecture — Checklist de Aderência
+
+| Princípio | Status | Onde |
+|---|---|---|
+| Domínio puro (zero dependências externas) | ✅ | `src/domain/` — models, ports, errors (sem zod, fastify, bullmq) |
+| Inversão de Dependência (DIP) | ✅ | Port `TakedownQueuePort` no domínio, implementada por `BullMQTakedownQueue` na infra |
+| Casos de uso com DI via construtor | ✅ | `ProcessViolationUseCase` e `GetJobStatusUseCase` recebem `TakedownQueuePort` |
+| Composition Root | ✅ | `src/server.ts` — wire manual de todas as dependências |
+| DTOs separados do domínio | ✅ | Zod schemas em `src/application/dtos/`, tipos puros em `src/domain/models/` |
+| Controllers thin (HTTP only) | ✅ | `src/infrastructure/http/routes/` — delegam para use cases |
+| Testes com Fake Repository | ✅ | `InMemoryTakedownQueue` — testes de use case sem mocks de infraestrutura |
+| Erros de domínio isolados | ✅ | `src/domain/errors/app-error.ts` — sem dependência de framework HTTP |

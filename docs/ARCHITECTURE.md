@@ -4,6 +4,8 @@
 
 A aplicação é uma mini-API HTTP construída com **Fastify** que recebe webhooks de violação de anúncios, valida os dados, enfileira jobs assíncronos via **BullMQ + Redis** e expõe um endpoint de consulta de status.
 
+A arquitetura segue os princípios da **Clean Architecture (DIP, SRP)** com três camadas principais: domínio, aplicação e infraestrutura.
+
 ---
 
 ## Estrutura de diretórios
@@ -12,37 +14,88 @@ A aplicação é uma mini-API HTTP construída com **Fastify** que recebe webhoo
 fury-click-hero/
 ├── src/
 │   ├── config/
-│   │   └── env.ts                  # Leitura e validação de variáveis de ambiente
-│   ├── lib/
-│   │   ├── error.ts                # Classes de erro (AppError, ValidationError, etc.)
-│   │   ├── error-handler.ts        # Handler global de erros do Fastify
-│   │   └── logger.ts               # Instância do logger (Pino)
-│   ├── queue/
-│   │   ├── connection.ts           # Conexão IORedis compartilhada
-│   │   ├── queue.ts                # Definição da fila BullMQ com opções de retry/backoff
-│   │   └── worker.ts               # Worker e função processJob
-│   ├── routes/
-│   │   ├── webhook.ts              # POST /webhook/violation
-│   │   └── jobs.ts                 # GET /jobs/:id
-│   ├── schemas/
-│   │   └── violation.ts            # Schemas Zod + tipos TypeScript exportados
-│   ├── services/
-│   │   ├── violation.service.ts    # Lógica: validação, idempotência, enfileiramento
-│   │   └── job.service.ts          # Lógica: consulta de status do job
-│   └── server.ts                   # Bootstrap, registro de rotas, graceful shutdown
+│   │   └── env.ts                          # Leitura e validação de variáveis de ambiente
+│   │
+│   ├── domain/                             # Camada de domínio (zero dependências externas)
+│   │   ├── errors/
+│   │   │   └── app-error.ts                # Hierarquia de erros (AppError, ValidationError, etc.)
+│   │   ├── models/
+│   │   │   └── violation.ts                # Tipos puros TypeScript (ViolationPayload, TakedownResult)
+│   │   └── ports/
+│   │       └── takedown-queue.port.ts      # Interface (contrato) para fila de jobs
+│   │
+│   ├── application/                        # Camada de aplicação (casos de uso)
+│   │   ├── dtos/
+│   │   │   └── violation.dto.ts            # Schemas Zod + tipos inferidos
+│   │   └── use-cases/
+│   │       ├── process-violation.ts        # Use case: receber e enfileirar violação
+│   │       └── get-job-status.ts           # Use case: consultar status do job
+│   │
+│   ├── infrastructure/                     # Camada de infraestrutura (frameworks, bibliotecas)
+│   │   ├── http/
+│   │   │   ├── routes/
+│   │   │   │   ├── webhook.ts              # POST /webhook/violation (thin controller)
+│   │   │   │   └── jobs.ts                 # GET /jobs/:id (thin controller)
+│   │   │   └── error-handler.ts            # Handler global de erros do Fastify
+│   │   ├── logging/
+│   │   │   └── logger.ts                   # Instância do logger (Pino)
+│   │   └── queue/
+│   │       ├── connection.ts               # Conexão IORedis compartilhada
+│   │       ├── queue.ts                    # Definição da fila BullMQ
+│   │       ├── bullmq-takedown-queue.ts    # Implementação da porta TakedownQueuePort
+│   │       └── worker.ts                   # Worker e função processJob
+│   │
+│   └── server.ts                           # Composition Root + bootstrap + graceful shutdown
+│
 ├── tests/
-│   ├── env.test.ts                 # Testes unitários de requireEnv / requirePort
-│   ├── violation.test.ts           # Testes unitários do schema Zod
-│   ├── worker.test.ts              # Testes unitários de processJob (fetch mockado)
+│   ├── env.test.ts                         # Testes unitários de requireEnv / requirePort
+│   ├── violation.test.ts                   # Testes unitários do schema Zod
+│   ├── worker.test.ts                      # Testes unitários de processJob (fetch mockado)
+│   ├── use-cases/                          # Testes unitários com InMemory adapter (sem infra)
+│   │   ├── in-memory-takedown-queue.ts     # Fake repository para testes
+│   │   ├── process-violation.test.ts       # Testes do use case de violação
+│   │   └── get-job-status.test.ts          # Testes do use case de status
 │   └── integration/
-│       └── api.test.ts             # Testes de integração via fastify.inject (BullMQ mockado)
+│       └── api.test.ts                     # Testes de integração via fastify.inject (InMemory adapter)
 ├── scripts/
-│   └── test-api.ps1               # Script E2E contra a API real em execução
-├── docker-compose.yml              # Redis em container
-├── .env / .env.example             # Variáveis de ambiente
+│   └── test-api.ps1                        # Script E2E contra a API real em execução
+├── docker-compose.yml                      # Redis em container
+├── .env / .env.example                     # Variáveis de ambiente
 ├── package.json
 └── tsconfig.json
 ```
+
+---
+
+## Princípios Arquiteturais
+
+### Inversão de Dependência (DIP)
+
+Os casos de uso (`application/use-cases`) dependem de interfaces definidas no domínio (`domain/ports`), não de implementações concretas. A infraestrutura implementa essas interfaces e é injetada via construtor no **Composition Root** (`server.ts`).
+
+```
+┌──────────┐     ┌──────────────┐     ┌──────────────────────┐
+│  Routes  │────→│  Use Cases   │────→│  Ports (interfaces)  │
+│ (infra)  │     │ (application)│     │      (domain)        │
+└──────────┘     └──────────────┘     └──────────┬───────────┘
+                                                 │
+                                        ┌────────▼───────────┐
+                                        │  Implementações     │
+                                        │  (infra/queue,      │
+                                        │   tests/in-memory)  │
+                                        └────────────────────┘
+```
+
+### Domínio Puro (zero dependências externas)
+
+A camada `src/domain/` **não importa** nenhuma biblioteca externa (Zod, Fastify, BullMQ, Pino). Ela contém apenas:
+- **Modelos**: tipos TypeScript puros
+- **Portas**: interfaces (contratos)
+- **Erros**: classes de erro de domínio
+
+### Schemas Zod na Application
+
+Os schemas de validação (Zod) residem em `src/application/dtos/`, e não no domínio. Isso mantém o domínio livre de dependências de frameworks.
 
 ---
 
@@ -53,62 +106,61 @@ Cliente HTTP
     │
     │  POST /webhook/violation  { adId, tenantId, violationType, severity, detectedAt }
     ▼
-┌─────────────────────────────────────────┐
-│  webhookRoutes  (src/routes/webhook.ts) │
-│  Fastify route handler                  │
-└────────────────────┬────────────────────┘
+┌──────────────────────────────────────────────┐
+│  webhookRoutes  (infrastructure/http/routes) │
+│  Fastify route handler (thin controller)     │
+└────────────────────┬─────────────────────────┘
+                     │  delega para o use case
+                     ▼
+┌──────────────────────────────────────────────┐
+│  ProcessViolationUseCase                     │
+│  (application/use-cases)                     │
+│                                              │
+│  1. violationSchema.safeParse(body)          │  ──→ 400 se inválido
+│  2. this.queue.getJob(jobId)                 │  ──→ via TakedownQueuePort
+│  3. Se status ∈ {waiting,active,delayed}     │  ──→ 409 Conflict
+│  4. this.queue.addJob(jobId, data)           │
+└────────────────────┬─────────────────────────┘
                      │
                      ▼
-┌─────────────────────────────────────────┐
-│  ViolationService                       │
-│  (src/services/violation.service.ts)    │
-│                                         │
-│  1. violationSchema.safeParse(body)     │  ──→ 400 se inválido
-│  2. takedownQueue.getJob(jobId)         │
-│  3. Se estado ∈ {waiting,active,delayed}│  ──→ 409 Conflict
-│  4. takedownQueue.add('takedown', data) │
-└────────────────────┬────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────┐
-│  BullMQ Queue  "takedown"               │
-│  (src/queue/queue.ts)                   │
-│                                         │
-│  - jobId determinístico: adId_tenantId  │
-│  - attempts: 3                          │
-│  - backoff: exponential, delay: 2000ms  │
-│  - removeOnComplete: 1h / max 500       │
-│  - removeOnFail: 24h / max 200          │
-└────────────────────┬────────────────────┘
+┌──────────────────────────────────────────────┐
+│  BullMQTakedownQueue (implements Port)       │
+│  (infrastructure/queue)                      │
+│                                              │
+│  - jobId determinístico: adId_tenantId       │
+│  - attempts: 3                               │
+│  - backoff: exponential, delay: 2000ms       │
+│  - removeOnComplete: 1h / max 500            │
+│  - removeOnFail: 24h / max 200               │
+└────────────────────┬─────────────────────────┘
                      │  job enfileirado no Redis
                      ▼
-┌─────────────────────────────────────────┐
-│  Worker  (src/queue/worker.ts)          │
-│                                         │
-│  processJob(job):                       │
-│    fetch(JSONPlaceholder, timeout 8s)   │
-│    if !response.ok → throw Error        │  ──→ BullMQ faz retry
-│    return { status, ok: true }          │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│  Worker  (infrastructure/queue/worker.ts)    │
+│                                              │
+│  processJob(job):                            │
+│    fetch(JSONPlaceholder, timeout 8s)        │
+│    if !response.ok → throw Error             │  ──→ BullMQ faz retry
+│    return { status, ok: true }               │
+└──────────────────────────────────────────────┘
 
 Cliente HTTP
     │
     │  GET /jobs/:id
     ▼
-┌─────────────────────────────────────────┐
-│  jobRoutes  (src/routes/jobs.ts)        │
-└────────────────────┬────────────────────┘
+┌──────────────────────────────────────────────┐
+│  jobRoutes  (infrastructure/http/routes)     │
+└────────────────────┬─────────────────────────┘
                      │
                      ▼
-┌─────────────────────────────────────────┐
-│  JobService                             │
-│  (src/services/job.service.ts)          │
-│                                         │
-│  takedownQueue.getJob(jobId)            │  ──→ 404 se não existe
-│  job.getState()                         │
-│  return { jobId, status, attempts,      │
-│           result, error }               │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│  GetJobStatusUseCase                         │
+│  (application/use-cases)                     │
+│                                              │
+│  this.queue.getJob(jobId)                    │  ──→ 404 se não existe
+│  return { jobId, status, attempts,           │
+│           result, error }                    │
+└──────────────────────────────────────────────┘
 ```
 
 ---
@@ -119,24 +171,49 @@ Cliente HTTP
 
 Funções `requireEnv` e `requirePort` validam as variáveis de ambiente na inicialização. Erros de configuração falham rápido (fail-fast) antes de o servidor escutar requisições.
 
-### `src/schemas/violation.ts`
+### `src/domain/models/violation.ts`
 
-Schema Zod central que define:
+Tipos TypeScript puros (sem dependência externa):
+- `ViolationType`, `Severity` — union types string
+- `ViolationPayload` — interface do payload do webhook
+- `TakedownResult` — interface do retorno do worker
+
+### `src/application/dtos/violation.dto.ts`
+
+Schemas Zod centrais:
 - `violationSchema` — validação do payload do webhook
 - `takedownResultSchema` — validação do retorno do worker
-- Tipos TypeScript derivados via `z.infer`
 
-### `src/services/violation.service.ts` — Idempotência
+Os schemas ficam na camada de aplicação (não no domínio) para manter o domínio livre de dependências de frameworks.
+
+### `src/domain/ports/takedown-queue.port.ts`
+
+Interface (contrato) que define as operações de fila que os casos de uso podem chamar:
+- `getJob(jobId)` — buscar job por ID
+- `addJob(jobId, data)` — adicionar job à fila
+
+Implementações concretas:
+- `src/infrastructure/queue/bullmq-takedown-queue.ts` — produção (BullMQ)
+- `tests/use-cases/in-memory-takedown-queue.ts` — testes unitários
+
+### `src/application/use-cases/process-violation.ts` — Idempotência
 
 A idempotência é implementada em duas camadas:
 
 1. **Job ID determinístico**: `jobId = adId_tenantId` — o BullMQ usa esse ID como chave no Redis, impedindo dois jobs com o mesmo ID de coexistir simultaneamente.
 
-2. **Verificação de estado**: antes de enfileirar, o serviço consulta o estado atual do job. Se o estado for `waiting`, `active` ou `delayed`, retorna `409 Conflict`. Se for `completed` ou `failed`, remove o job antigo e cria um novo (permite reprocessamento).
+2. **Verificação de estado**: antes de enfileirar, o use case consulta o estado atual do job. Se o estado for `waiting`, `active` ou `delayed`, retorna `409 Conflict`. Se for `completed` ou `failed`, remove o job antigo e cria um novo (permite reprocessamento).
 
 > **Trade-off consciente**: a verificação de estado e o enfileiramento não são atômicos. Em cenários de concorrência extrema, dois requests simultâneos podem ambos passar pela verificação antes de qualquer um enfileirar. O BullMQ protege a fila neste caso (apenas um job prevalece), mas o contrato HTTP pode retornar dois `201`. Para o escopo do desafio, esse nível de risco é aceitável.
 
-### `src/queue/queue.ts` — Resiliência
+### `src/application/use-cases/get-job-status.ts` — Consulta
+
+Use case que consulta o status de um job na fila:
+- Busca o job via `TakedownQueuePort.getJob(jobId)`
+- Lança `NotFoundError` (404) se o job não existe
+- Retorna estrutura padronizada `{ jobId, status, attempts, result, error }`
+
+### `src/infrastructure/queue/queue.ts` — Resiliência
 
 ```typescript
 defaultJobOptions: {
@@ -147,16 +224,16 @@ defaultJobOptions: {
 }
 ```
 
-### `src/queue/worker.ts` — Processamento
+### `src/infrastructure/queue/worker.ts` — Processamento
 
 - Chama `https://jsonplaceholder.typicode.com/posts/1` como mock da Meta API
 - Timeout de 8s via `AbortSignal.timeout`
 - Qualquer resposta não-2xx lança `Error`, delegando retry ao BullMQ
 - Erros de rede (timeout, DNS) propagam diretamente para o BullMQ
 
-### `src/lib/error.ts` + `src/lib/error-handler.ts`
+### `src/domain/errors/app-error.ts` + `src/infrastructure/http/error-handler.ts`
 
-Hierarquia de erros tipada:
+Hierarquia de erros tipada (no domínio):
 
 ```
 AppError (base)
@@ -165,9 +242,20 @@ AppError (base)
 └── ConflictError    → 409
 ```
 
-O handler global captura qualquer `AppError` e serializa para o formato de resposta padronizado. Erros desconhecidos retornam `500`.
+O handler global (na infraestrutura) captura qualquer `AppError` e serializa para o formato de resposta padronizado. Erros desconhecidos retornam `500`.
 
-### `src/server.ts` — Graceful Shutdown
+### `src/server.ts` — Composition Root + Graceful Shutdown
+
+O `server.ts` atua como **Composition Root**: todas as dependências são instanciadas e injetadas manualmente:
+
+```typescript
+const queueAdapter = new BullMQTakedownQueue(takedownQueue)
+const processViolationUseCase = new ProcessViolationUseCase(queueAdapter)
+const getJobStatusUseCase = new GetJobStatusUseCase(queueAdapter)
+
+app.register(webhookRoutes, { processViolationUseCase })
+app.register(jobRoutes, { getJobStatusUseCase })
+```
 
 Ao receber `SIGTERM` ou `SIGINT`:
 1. Fecha o worker BullMQ (para de aceitar novos jobs)
@@ -184,7 +272,8 @@ Ao receber `SIGTERM` ou `SIGINT`:
 | Unitário — Schema | Vitest | Não | Validação Zod para todos os casos de borda |
 | Unitário — Worker | Vitest + `vi.spyOn(fetch)` | Não | processJob: 2xx, 4xx/5xx, erro de rede |
 | Unitário — Env | Vitest | Não | requireEnv / requirePort: edge cases de configuração |
-| Integração — API | Vitest + `fastify.inject` + mocks BullMQ | Não | Rotas HTTP completas com BullMQ mockado |
+| Unitário — Use Cases | Vitest + InMemory adapter | Não | Lógica de negócio sem infraestrutura |
+| Integração — API | Vitest + `fastify.inject` + InMemory adapter | Não | Rotas HTTP completas com adapter em memória |
 | E2E | PowerShell + API real | **Sim** | Fluxo completo end-to-end: 31 asserções |
 
 ---

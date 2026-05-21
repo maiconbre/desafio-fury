@@ -1,50 +1,28 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import Fastify from 'fastify'
-
-const mockJob = (overrides: Record<string, unknown> = {}) => ({
-  id: 'ad-123_tenant-456',
-  data: { adId: 'ad-123', tenantId: 'tenant-456' },
-  attemptsMade: 1,
-  returnvalue: { status: 200, ok: true },
-  failedReason: undefined,
-  getState: vi.fn().mockResolvedValue('completed'),
-  ...overrides,
-})
-
-const mockQueue = {
-  getJobs: vi.fn(),
-  getJob: vi.fn(),
-  add: vi.fn(),
-}
-
-vi.mock('../../src/queue/queue.js', () => ({
-  takedownQueue: mockQueue,
-}))
-
-vi.mock('../../src/queue/connection.js', () => ({ connection: {} }))
-vi.mock('../../src/queue/worker.js', () => ({
-  worker: { close: vi.fn() },
-  processJob: vi.fn(),
-}))
-vi.mock('bullmq', () => ({ Worker: class {}, Queue: class {} }))
+import { InMemoryTakedownQueue } from '../use-cases/in-memory-takedown-queue.js'
+import { ProcessViolationUseCase } from '../../src/application/use-cases/process-violation.js'
+import { GetJobStatusUseCase } from '../../src/application/use-cases/get-job-status.js'
+import { webhookRoutes } from '../../src/infrastructure/http/routes/webhook.js'
+import { jobRoutes } from '../../src/infrastructure/http/routes/jobs.js'
+import { errorHandler } from '../../src/infrastructure/http/error-handler.js'
 
 describe('API Integration', () => {
   let app: ReturnType<typeof Fastify>
+  let queue: InMemoryTakedownQueue
 
   beforeEach(async () => {
-    vi.clearAllMocks()
+    queue = new InMemoryTakedownQueue()
+    const processViolationUseCase = new ProcessViolationUseCase(queue)
+    const getJobStatusUseCase = new GetJobStatusUseCase(queue)
 
     app = Fastify()
-
-    const { webhookRoutes } = await import('../../src/routes/webhook.js')
-    const { jobRoutes } = await import('../../src/routes/jobs.js')
-    const { errorHandler } = await import('../../src/lib/error-handler.js')
 
     app.setErrorHandler(errorHandler)
 
     app.get('/health', () => ({ status: 'ok', timestamp: new Date().toISOString() }))
-    app.register(webhookRoutes)
-    app.register(jobRoutes)
+    app.register(webhookRoutes, { processViolationUseCase })
+    app.register(jobRoutes, { getJobStatusUseCase })
     await app.ready()
   })
 
@@ -61,15 +39,12 @@ describe('API Integration', () => {
     const validBody = {
       adId: 'ad-123',
       tenantId: 'tenant-456',
-      violationType: 'PROHIBITED_TERM',
-      severity: 'HIGH',
+      violationType: 'PROHIBITED_TERM' as const,
+      severity: 'HIGH' as const,
       detectedAt: '2026-05-21T10:00:00.000Z',
     }
 
     it('returns 201 with jobId for valid payload', async () => {
-      mockQueue.getJob.mockResolvedValue(undefined)
-      mockQueue.add.mockResolvedValue({ id: 'ad-123_tenant-456' })
-
       const response = await app.inject({
         method: 'POST',
         url: '/webhook/violation',
@@ -95,8 +70,10 @@ describe('API Integration', () => {
     })
 
     it('returns 409 for duplicate job', async () => {
-      mockQueue.getJob.mockResolvedValue({
-        getState: vi.fn().mockResolvedValue('waiting'),
+      await app.inject({
+        method: 'POST',
+        url: '/webhook/violation',
+        body: validBody,
       })
 
       const response = await app.inject({
@@ -115,16 +92,34 @@ describe('API Integration', () => {
 
   describe('GET /jobs/:id', () => {
     it('returns 200 with job status for existing job', async () => {
-      mockQueue.getJob.mockResolvedValue(mockJob())
+      await app.inject({
+        method: 'POST',
+        url: '/webhook/violation',
+        body: {
+          adId: 'ad-999',
+          tenantId: 'tenant-999',
+          violationType: 'PROHIBITED_TERM' as const,
+          severity: 'LOW' as const,
+          detectedAt: '2026-05-21T10:00:00.000Z',
+        },
+      })
+
+      const jobId = 'ad-999_tenant-999'
+      const job = await queue.getJob(jobId)
+      if (job) {
+        job.status = 'completed'
+        job.attemptsMade = 1
+        job.returnValue = { status: 200, ok: true }
+      }
 
       const response = await app.inject({
         method: 'GET',
-        url: '/jobs/ad-123_tenant-456',
+        url: `/jobs/${jobId}`,
       })
 
       expect(response.statusCode).toBe(200)
       expect(response.json()).toEqual({
-        jobId: 'ad-123_tenant-456',
+        jobId,
         status: 'completed',
         attempts: 1,
         result: { status: 200, ok: true },
@@ -133,8 +128,6 @@ describe('API Integration', () => {
     })
 
     it('returns 404 for non-existent job', async () => {
-      mockQueue.getJob.mockResolvedValue(undefined)
-
       const response = await app.inject({
         method: 'GET',
         url: '/jobs/inexistente',
