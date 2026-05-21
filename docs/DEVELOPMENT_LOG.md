@@ -1,4 +1,4 @@
-# Diário de Desenvolvimento — FURY · Click Hero
+# Diário de Desenvolvimento — FURY
 
 > Este documento registra o processo de desenvolvimento completo: planejamento, fases de execução, decisões tomadas durante o caminho, bugs encontrados e melhorias aplicadas — incluindo o uso de IA como ferramenta de auxílio.
 
@@ -264,18 +264,6 @@ const response = await fetch(META_API_MOCK, { signal: AbortSignal.timeout(8000) 
 | 15 | README.md detalhado | Setup, curl, payloads, scripts, resiliência | ✅ |
 
 **15/15 requisitos atendidos.**
-
----
-
-## O que Permanece em Aberto (fora do escopo)
-
-| Item | Esforço estimado | Motivo para não incluir |
-|---|---|---|
-| Race condition atômica (Lua script no Redis) | ~2h | Complexidade injustificável para o mock atual |
-| Testes E2E com Redis real (`testcontainers`) | ~2h | Infraestrutura de teste fora do escopo do desafio |
-| Correlation ID nos logs (AsyncLocalStorage) | ~1h | Tracing distribuído fora do escopo |
-| Teste de graceful shutdown | ~30min | Simular SIGTERM em teste é frágil por natureza |
-| Validação do valor de `LOG_LEVEL` | ~15min | Aceita valores inválidos silenciosamente — risco baixo |
 
 ---
 

@@ -1,23 +1,22 @@
-export function requireEnv(key: string, fallback: string): string {
-  const value = process.env[key] ?? fallback
-  if (value === '') {
-    throw new Error(`Environment variable ${key} is required but was empty`)
-  }
-  return value
+import { z } from 'zod'
+
+const envSchema = z.object({
+  REDIS_URL: z.string().url().default('redis://localhost:6379'),
+  PORT: z.coerce
+    .number()
+    .int()
+    .min(1, 'must be a valid port')
+    .max(65535, 'must be a valid port')
+    .default(3000),
+  LOG_LEVEL: z.string().min(1, 'required but was empty').default('info'),
+})
+
+const _env = envSchema.safeParse(process.env)
+
+if (!_env.success) {
+  console.error('Invalid environment variables:', _env.error.format())
+  throw new Error('Invalid environment variables')
 }
 
-export function requirePort(key: string, fallback: number): number {
-  const raw = process.env[key]
-  if (raw === undefined || raw === '') return fallback
-  const port = Number(raw)
-  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`Environment variable ${key} must be a valid port (1-65535), got "${raw}"`)
-  }
-  return port
-}
+export const env = _env.data
 
-export const env = {
-  REDIS_URL: requireEnv('REDIS_URL', 'redis://localhost:6379'),
-  PORT: requirePort('PORT', 3000),
-  LOG_LEVEL: requireEnv('LOG_LEVEL', 'info'),
-} as const

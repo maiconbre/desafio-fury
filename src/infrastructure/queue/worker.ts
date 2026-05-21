@@ -2,6 +2,7 @@ import { Worker } from 'bullmq'
 import { connection } from './connection.js'
 import { logger } from '../logging/logger.js'
 import type { ViolationPayload, TakedownResult } from '../../domain/models/violation.js'
+import { ExternalApiError } from '../../domain/errors/app-error.js'
 
 const META_API_MOCK = 'https://jsonplaceholder.typicode.com/posts/1'
 
@@ -13,7 +14,9 @@ export async function processJob(job: { data: ViolationPayload }): Promise<Taked
   const response = await fetch(META_API_MOCK, { signal: AbortSignal.timeout(8000) })
 
   if (!response.ok) {
-    throw new Error(`Meta API responded with ${response.status}`)
+    throw new ExternalApiError(`Meta API responded with ${response.status}`, {
+      status: response.status,
+    })
   }
 
   return { status: response.status, ok: true }

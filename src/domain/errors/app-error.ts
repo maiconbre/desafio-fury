@@ -37,6 +37,13 @@ export class ConflictError extends AppError {
   }
 }
 
+export class ExternalApiError extends AppError {
+  constructor(message: string, details?: unknown) {
+    super(502, message, details) // 502 Bad Gateway
+    this.name = 'ExternalApiError'
+  }
+}
+
 export function badRequest(message: string, details?: unknown): ErrorResponse {
   return { error: 'Bad request', message, details }
 }

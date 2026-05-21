@@ -1,4 +1,4 @@
-# FURY · Click Hero
+# FURY
 
 > API robusta e resiliente em **Node.js + TypeScript** que implementa uma fila de processamento assíncrono de violações de anúncios, utilizando **Fastify**, **Zod**, **BullMQ** e **Redis**.
 
@@ -6,10 +6,10 @@
 
 ## 📂 Engenharia e Decisões Técnicas
 
-Para auxiliar a avaliação e demonstrar a profundidade das decisões de engenharia adotadas neste projeto, disponibilizamos dois documentos detalhados:
+Para demonstrar a profundidade das decisões de engenharia adotadas neste projeto, disponibilizamos dois documentos detalhados:
 
-1. **[Guia de Arquitetura](./docs/ARCHITECTURE.md)**: Explica em detalhes o design de software, a estrutura do projeto em camadas, o fluxo de dados dos webhooks até a fila assíncrona, a estratégia de idempotência de duas camadas e as políticas de resiliência (retry, backoff, timeouts e graceful shutdown).
-2. **[Diário de Desenvolvimento](./docs/DEVELOPMENT_LOG.md)**: Registra o processo cronológico de desenvolvimento passo a passo (scaffolding até testes), a metodologia de pareamento com IA, a revisão crítica autônoma que identificou e resolveu bugs de concorrência e fechamento de conexões, e as melhorias de nível sênior aplicadas (health check ativo de dependência e TTL refinado para controle de memória Redis).
+1. **[Guia de Arquitetura](./docs/ARCHITECTURE.md)**: Explica a estrutura em camadas, o fluxo de dados dos webhooks à fila assíncrona, a estratégia de idempotência dupla e as políticas de resiliência (retry, backoff, timeouts e graceful shutdown).
+2. **[Diário de Desenvolvimento](./docs/DEVELOPMENT_LOG.md)**: Registra o processo cronológico de desenvolvimento, a metodologia de pareamento com IA, a revisão autônoma que corrigiu bugs de concorrência e as melhorias aplicadas (como health check ativo de dependência e TTL refinado do Redis).
 
 ---
 
@@ -280,3 +280,10 @@ Para mais detalhes sobre as decisões, consulte o [Guia de Arquitetura](./docs/A
 * **Resiliência Transiente**: Políticas de retentativa automática configuradas com **3 tentativas no máximo** e **backoff exponencial de 2 segundos** (2s, 4s, 8s).
 * **Gestão de Memória Redis**: Jobs bem-sucedidos expiram em 1 hora (`removeOnComplete: { age: 3600 }`) e falhos expiram em 24 horas (`removeOnFail: { age: 86400 }`) mantendo a fila enxuta e saudável.
 * **Desligamento Gracioso (Graceful Shutdown)**: Captura de sinais do sistema operacional (`SIGTERM` e `SIGINT`) garantindo que conexões ao Redis e processamento ativo do Worker sejam fechados limpos sem perda ou corrupção de mensagens.
+
+---
+
+## ✒️ Créditos
+
+Desenvolvido por **Maicon B.**
+* [Portfólio](https://maicon-dev.vercel.app/)

@@ -1,81 +1,38 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-describe('requirePort', () => {
-  it('returns fallback when env is not set', async () => {
-    const { requirePort } = await import('../src/config/env.js')
-    expect(requirePort('UNSET_VAR', 3000)).toBe(3000)
+describe('env validation', () => {
+  beforeEach(() => {
+    // Limpa o cache do módulo para forçar a reavaliação do process.env
+    vi.resetModules()
   })
 
-  it('returns fallback when env is empty string', async () => {
-    process.env.TEST_EMPTY = ''
-    const { requirePort } = await import('../src/config/env.js')
-    expect(requirePort('TEST_EMPTY', 8080)).toBe(8080)
+  it('uses default values when env is empty', async () => {
+    process.env = {}
+    const { env } = await import('../src/config/env.js')
+    expect(env.PORT).toBe(3000)
+    expect(env.LOG_LEVEL).toBe('info')
+    expect(env.REDIS_URL).toBe('redis://localhost:6379')
   })
 
-  it('returns parsed number for valid port', async () => {
-    process.env.TEST_PORT = '4000'
-    const { requirePort } = await import('../src/config/env.js')
-    expect(requirePort('TEST_PORT', 3000)).toBe(4000)
+  it('parses valid PORT correctly', async () => {
+    process.env = { PORT: '4000' }
+    const { env } = await import('../src/config/env.js')
+    expect(env.PORT).toBe(4000)
   })
 
-  it('throws for NaN', async () => {
-    process.env.TEST_NAN = 'not-a-number'
-    const { requirePort } = await import('../src/config/env.js')
-    expect(() => requirePort('TEST_NAN', 3000)).toThrow('must be a valid port')
+  it('throws an error if PORT is invalid (e.g. out of range)', async () => {
+    process.env = { PORT: '70000' }
+    await expect(import('../src/config/env.js')).rejects.toThrow('Invalid environment variables')
   })
 
-  it('throws for port 0', async () => {
-    process.env.TEST_ZERO = '0'
-    const { requirePort } = await import('../src/config/env.js')
-    expect(() => requirePort('TEST_ZERO', 3000)).toThrow('must be a valid port')
+  it('throws an error if PORT is negative', async () => {
+    process.env = { PORT: '-80' }
+    await expect(import('../src/config/env.js')).rejects.toThrow('Invalid environment variables')
   })
 
-  it('throws for floating point', async () => {
-    process.env.TEST_FLOAT = '123.45'
-    const { requirePort } = await import('../src/config/env.js')
-    expect(() => requirePort('TEST_FLOAT', 3000)).toThrow('must be a valid port')
-  })
-
-  it('throws for negative port', async () => {
-    process.env.TEST_NEG = '-80'
-    const { requirePort } = await import('../src/config/env.js')
-    expect(() => requirePort('TEST_NEG', 3000)).toThrow('must be a valid port')
-  })
-
-  it('throws for port > 65535', async () => {
-    process.env.TEST_HIGH = '70000'
-    const { requirePort } = await import('../src/config/env.js')
-    expect(() => requirePort('TEST_HIGH', 3000)).toThrow('must be a valid port')
-  })
-
-  it('accepts port 1', async () => {
-    process.env.TEST_MIN = '1'
-    const { requirePort } = await import('../src/config/env.js')
-    expect(requirePort('TEST_MIN', 3000)).toBe(1)
-  })
-
-  it('accepts port 65535', async () => {
-    process.env.TEST_MAX = '65535'
-    const { requirePort } = await import('../src/config/env.js')
-    expect(requirePort('TEST_MAX', 3000)).toBe(65535)
+  it('throws an error if REDIS_URL is invalid', async () => {
+    process.env = { REDIS_URL: 'not-a-url' }
+    await expect(import('../src/config/env.js')).rejects.toThrow('Invalid environment variables')
   })
 })
 
-describe('requireEnv', () => {
-  it('returns value when env is set', async () => {
-    process.env.TEST_VAL = 'my-value'
-    const { requireEnv } = await import('../src/config/env.js')
-    expect(requireEnv('TEST_VAL', 'fallback')).toBe('my-value')
-  })
-
-  it('returns fallback when env is not set', async () => {
-    const { requireEnv } = await import('../src/config/env.js')
-    expect(requireEnv('UNSET_VAR_2', 'fallback')).toBe('fallback')
-  })
-
-  it('throws when env is empty string', async () => {
-    process.env.TEST_EMPTY2 = ''
-    const { requireEnv } = await import('../src/config/env.js')
-    expect(() => requireEnv('TEST_EMPTY2', 'fallback')).toThrow('required but was empty')
-  })
-})

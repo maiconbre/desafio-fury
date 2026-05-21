@@ -1,4 +1,4 @@
-# Arquitetura — FURY · Click Hero
+# Arquitetura — FURY
 
 ## Visão geral
 
@@ -11,7 +11,7 @@ A arquitetura segue os princípios da **Clean Architecture (DIP, SRP)** com trê
 ## Estrutura de diretórios
 
 ```
-fury-click-hero/
+fury/
 ├── src/
 │   ├── config/
 │   │   └── env.ts                          # Leitura e validação de variáveis de ambiente

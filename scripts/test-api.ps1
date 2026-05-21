@@ -1,5 +1,5 @@
-﻿# ============================================================
-# FURY · Click Hero — Script de Teste E2E da API
+# ============================================================
+# FURY - Script de Teste E2E da API
 # Uso: .\scripts\test-api.ps1 [-BaseUrl "http://localhost:3000"]
 # ============================================================
 
@@ -57,9 +57,9 @@ function Invoke-API($method, $path, $body = $null) {
     try {
         if ($body) {
             $json = $body | ConvertTo-Json -Depth 5
-            $response = Invoke-WebRequest -Uri $url -Method $method -Headers $headers -Body $json -ErrorAction Stop
+            $response = Invoke-WebRequest -Uri $url -Method $method -Headers $headers -Body $json -UseBasicParsing -ErrorAction Stop
         } else {
-            $response = Invoke-WebRequest -Uri $url -Method $method -Headers $headers -ErrorAction Stop
+            $response = Invoke-WebRequest -Uri $url -Method $method -Headers $headers -UseBasicParsing -ErrorAction Stop
         }
         return @{
             Status = [int]$response.StatusCode
@@ -70,12 +70,11 @@ function Invoke-API($method, $path, $body = $null) {
         $parsedBody = $null
         if ($_.Exception.Response) {
             $statusCode = [int]$_.Exception.Response.StatusCode
-            try {
-                $stream = $_.Exception.Response.GetResponseStream()
-                $reader = New-Object System.IO.StreamReader($stream)
-                $raw = $reader.ReadToEnd()
-                $parsedBody = $raw | ConvertFrom-Json
-            } catch { }
+            if ($_.ErrorDetails.Message) {
+                try {
+                    $parsedBody = $_.ErrorDetails.Message | ConvertFrom-Json
+                } catch { }
+            }
         }
         return @{
             Status = $statusCode
@@ -92,7 +91,7 @@ Write-Header "0. Verificando conectividade com o servidor"
 $serverUp = $false
 for ($i = 1; $i -le 5; $i++) {
     try {
-        Invoke-WebRequest -Uri "$BaseUrl/health" -ErrorAction Stop | Out-Null
+        Invoke-WebRequest -Uri "$BaseUrl/health" -UseBasicParsing -ErrorAction Stop | Out-Null
         $serverUp = $true
         break
     } catch {
@@ -122,9 +121,9 @@ Assert-NotNull "campo timestamp presente"      $r.Body.timestamp
 Assert-Equal   "redis deve ser 'connected'"    $r.Body.redis "connected"
 
 # ============================================================
-# 2. POST /webhook/violation — payload valido (201)
+# 2. POST /webhook/violation - payload valido (201)
 # ============================================================
-Write-Header "2. POST /webhook/violation — payload valido (201)"
+Write-Header "2. POST /webhook/violation - payload valido (201)"
 
 $uniqueAd = "ad-e2e-$(Get-Date -Format 'HHmmssfff')"
 
@@ -145,9 +144,9 @@ $createdJobId = $r.Body.jobId
 Write-Host "  [INFO] jobId criado: $createdJobId" -ForegroundColor DarkGray
 
 # ============================================================
-# 3. POST /webhook/violation — todos os violationTypes (201)
+# 3. POST /webhook/violation - todos os violationTypes (201)
 # ============================================================
-Write-Header "3. POST /webhook/violation — todos os violationTypes"
+Write-Header "3. POST /webhook/violation - todos os violationTypes"
 
 foreach ($vtype in @("PROHIBITED_TERM", "BRAND_VIOLATION", "COMPLIANCE_FAIL")) {
     $p = @{
@@ -162,9 +161,9 @@ foreach ($vtype in @("PROHIBITED_TERM", "BRAND_VIOLATION", "COMPLIANCE_FAIL")) {
 }
 
 # ============================================================
-# 4. POST /webhook/violation — todos os severities (201)
+# 4. POST /webhook/violation - todos os severities (201)
 # ============================================================
-Write-Header "4. POST /webhook/violation — todos os severities"
+Write-Header "4. POST /webhook/violation - todos os severities"
 
 foreach ($sev in @("LOW", "MEDIUM", "HIGH", "CRITICAL")) {
     $p = @{
@@ -179,9 +178,9 @@ foreach ($sev in @("LOW", "MEDIUM", "HIGH", "CRITICAL")) {
 }
 
 # ============================================================
-# 5. POST /webhook/violation — payload invalido (400)
+# 5. POST /webhook/violation - payload invalido (400)
 # ============================================================
-Write-Header "5. POST /webhook/violation — validacao Zod (400)"
+Write-Header "5. POST /webhook/violation - validacao Zod (400)"
 
 # 5a. Payload vazio
 $r = Invoke-API "POST" "/webhook/violation" @{}
@@ -220,9 +219,9 @@ $r = Invoke-API "POST" "/webhook/violation" @{
 Assert-Equal "tenantId ausente retorna 400" $r.Status 400
 
 # ============================================================
-# 6. POST /webhook/violation — idempotencia (409)
+# 6. POST /webhook/violation - idempotencia (409)
 # ============================================================
-Write-Header "6. POST /webhook/violation — idempotencia (409)"
+Write-Header "6. POST /webhook/violation - idempotencia (409)"
 
 $idempAd = "ad-idemp-$(Get-Date -Format 'HHmmssfff')"
 
@@ -234,6 +233,13 @@ $idempPayload = @{
     detectedAt    = "2026-05-21T10:00:00.000Z"
 }
 
+# Enche a fila com alguns jobs fakes para garantir que o worker esteja ocupado
+# Isso evita a "race condition" de o job de idempotência ser processado antes de enviarmos a segunda requisição
+for ($i = 0; $i -lt 5; $i++) {
+    $clog = @{ adId="clog-$i-$(Get-Random)"; tenantId="clog"; violationType="PROHIBITED_TERM"; severity="LOW"; detectedAt="2026-05-21T10:00:00.000Z" }
+    Invoke-API "POST" "/webhook/violation" $clog | Out-Null
+}
+
 $r1 = Invoke-API "POST" "/webhook/violation" $idempPayload
 Assert-Equal "1 request deve retornar 201"        $r1.Status 201
 
@@ -243,9 +249,9 @@ Assert-Equal  "error deve ser 'Conflict'"            $r2.Body.error "Conflict"
 Assert-Contains "mensagem deve mencionar o adId"     $r2.Body.message $idempAd
 
 # ============================================================
-# 7. GET /jobs/:id — job existente (200)
+# 7. GET /jobs/:id - job existente (200)
 # ============================================================
-Write-Header "7. GET /jobs/:id — job existente (200)"
+Write-Header "7. GET /jobs/:id - job existente (200)"
 
 Write-Host "  [WAIT] Aguardando worker processar o job (4s)..." -ForegroundColor DarkYellow
 Start-Sleep -Seconds 4
@@ -259,9 +265,9 @@ Assert-NotNull "campo attempts presente"           "$($r.Body.attempts)"
 Write-Host "  [INFO] status=$($r.Body.status) | attempts=$($r.Body.attempts) | result=$($r.Body.result | ConvertTo-Json -Compress)" -ForegroundColor DarkGray
 
 # ============================================================
-# 8. GET /jobs/:id — job inexistente (404)
+# 8. GET /jobs/:id - job inexistente (404)
 # ============================================================
-Write-Header "8. GET /jobs/:id — job inexistente (404)"
+Write-Header "8. GET /jobs/:id - job inexistente (404)"
 
 $r = Invoke-API "GET" "/jobs/job-que-nao-existe-xyz"
 Assert-Equal  "status HTTP deve ser 404"          $r.Status 404
