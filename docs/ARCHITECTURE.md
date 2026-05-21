@@ -274,7 +274,7 @@ Ao receber `SIGTERM` ou `SIGINT`:
 | Unitário — Env | Vitest | Não | requireEnv / requirePort: edge cases de configuração |
 | Unitário — Use Cases | Vitest + InMemory adapter | Não | Lógica de negócio sem infraestrutura |
 | Integração — API | Vitest + `fastify.inject` + InMemory adapter | Não | Rotas HTTP completas com adapter em memória |
-| E2E | PowerShell + API real | **Sim** | Fluxo completo end-to-end: 31 asserções |
+| E2E | PowerShell + API real | **Sim** | Fluxo completo end-to-end: 33 asserções |
 
 ---
 

@@ -85,7 +85,7 @@ npm run test:watch
 
 ### B. Testes End-to-End (E2E) (Com Redis e API real)
 Esta suite valida os contratos reais e a resiliência em tempo de execução. Ela levanta requisições HTTP reais contra o servidor e analisa as respostas do banco Redis e do Worker.
-* **O que é testado (31 asserções)**:
+* **O que é testado (33 asserções)**:
   * Health check ativo de dependências.
   * Criação correta de jobs na fila com ID determinístico.
   * Rejeição de requisições malformadas (status 400).

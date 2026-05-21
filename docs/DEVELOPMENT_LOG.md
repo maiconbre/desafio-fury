@@ -69,7 +69,7 @@ O desenvolvimento foi feito com auxílio do **Claude (Anthropic)** via Antigravi
 - `README.md` com instruções, endpoints, exemplos curl, scripts, resiliência
 - `docs/ARCHITECTURE.md` com fluxo de dados, componentes e decisões técnicas
 - `docs/DEVELOPMENT_LOG.md` (este arquivo)
-- Script `scripts/test-api.ps1` com 31 asserções E2E contra a API real
+- Script `scripts/test-api.ps1` com 33 asserções E2E contra a API real
 
 ### Fase 9 — Refatoração para Clean Architecture
 
@@ -235,7 +235,7 @@ const response = await fetch(META_API_MOCK, { signal: AbortSignal.timeout(8000) 
 | README com instruções completas e curl examples | ✅ |
 | `docker-compose.yml` funcional | ✅ |
 | 50 testes unitários passando | ✅ |
-| 31 asserções E2E passando (API real) | ✅ |
+| 33 asserções E2E passando (API real) | ✅ |
 | Clean Architecture: domínio puro (zero dependências externas) | ✅ |
 | Clean Architecture: DIP com port + adapter | ✅ |
 | Clean Architecture: Composition Root | ✅ |
