@@ -2,7 +2,9 @@ import Fastify from 'fastify'
 import { env } from './config/env.js'
 import { webhookRoutes } from './infrastructure/http/routes/webhook.js'
 import { jobRoutes } from './infrastructure/http/routes/jobs.js'
-import { worker } from './infrastructure/queue/worker.js'
+import { healthRoutes } from './infrastructure/http/routes/health.js'
+import { setupWorker } from './infrastructure/queue/worker.js'
+import { HttpMetaGateway } from './infrastructure/queue/http-meta-gateway.js'
 import { takedownQueue } from './infrastructure/queue/queue.js'
 import { connection } from './infrastructure/queue/connection.js'
 import { errorHandler } from './infrastructure/http/error-handler.js'
@@ -19,26 +21,31 @@ app.setErrorHandler((error, request, reply) => {
   return errorHandler(error, request, reply)
 })
 
-app.get('/health', async (_, reply) => {
-  try {
-    await connection.ping()
-    return reply.send({ status: 'ok', redis: 'connected', timestamp: new Date().toISOString() })
-  } catch {
-    return reply.status(503).send({ status: 'degraded', redis: 'disconnected', timestamp: new Date().toISOString() })
-  }
-})
-
 // Composition Root
+const metaGateway = new HttpMetaGateway()
+const worker = setupWorker(metaGateway)
+
 const queueAdapter = new BullMQTakedownQueue(takedownQueue)
 const processViolationUseCase = new ProcessViolationUseCase(queueAdapter)
 const getJobStatusUseCase = new GetJobStatusUseCase(queueAdapter)
 
 // Registrar as rotas injetando as dependências
+app.register(healthRoutes, { ping: () => connection.ping() })
 app.register(webhookRoutes, { processViolationUseCase })
 app.register(jobRoutes, { getJobStatusUseCase })
 
 async function shutdown(): Promise<void> {
   app.log.info('Shutting down gracefully...')
+
+  // Timeout de segurança de 10s para evitar travamento zumbi no orquestrador (ECS/K8s)
+  const forceShutdownTimeout = setTimeout(() => {
+    app.log.error('Graceful shutdown timed out, forcing exit!')
+    process.exit(1)
+  }, 10000)
+
+  // Desreferencia o timeout para não impedir que o processo finalize caso as conexões fechem antes
+  forceShutdownTimeout.unref()
+
   await worker.close()
   await takedownQueue.close()
   try {
@@ -47,6 +54,8 @@ async function shutdown(): Promise<void> {
     app.log.warn({ err }, 'Redis connection already closed during shutdown')
   }
   await app.close()
+
+  clearTimeout(forceShutdownTimeout)
   process.exit(0)
 }
 

@@ -22,43 +22,46 @@ fury/
 │   │   ├── models/
 │   │   │   └── violation.ts                # Tipos puros TypeScript (ViolationPayload, TakedownResult)
 │   │   └── ports/
-│   │       └── takedown-queue.port.ts      # Interface (contrato) para fila de jobs
+│   │       ├── takedown-queue.port.ts      # Interface para fila de jobs e controle de locks
+│   │       └── meta-gateway.port.ts        # [NEW] Interface pura para integração externa com Meta API
 │   │
 │   ├── application/                        # Camada de aplicação (casos de uso)
 │   │   ├── dtos/
 │   │   │   └── violation.dto.ts            # Schemas Zod + tipos inferidos
 │   │   └── use-cases/
-│   │       ├── process-violation.ts        # Use case: receber e enfileirar violação
+│   │       ├── process-violation.ts        # Use case: receber, travar com lock e enfileirar violação
 │   │       └── get-job-status.ts           # Use case: consultar status do job
 │   │
 │   ├── infrastructure/                     # Camada de infraestrutura (frameworks, bibliotecas)
 │   │   ├── http/
 │   │   │   ├── routes/
 │   │   │   │   ├── webhook.ts              # POST /webhook/violation (thin controller)
-│   │   │   │   └── jobs.ts                 # GET /jobs/:id (thin controller)
-│   │   │   └── error-handler.ts            # Handler global de erros do Fastify
+│   │   │   │   ├── jobs.ts                 # GET /jobs/:id (thin controller)
+│   │   │   │   └── health.ts               # [NEW] GET /health (desacoplado e testável)
+│   │   │   └── error-handler.ts            # Handler global de erros do Fastify (não mascara erros nativos)
 │   │   ├── logging/
 │   │   │   └── logger.ts                   # Instância do logger (Pino)
 │   │   └── queue/
 │   │       ├── connection.ts               # Conexão IORedis compartilhada
 │   │       ├── queue.ts                    # Definição da fila BullMQ
-│   │       ├── bullmq-takedown-queue.ts    # Implementação da porta TakedownQueuePort
-│   │       └── worker.ts                   # Worker e função processJob
+│   │       ├── bullmq-takedown-queue.ts    # Implementação da porta TakedownQueuePort (BullMQ + Redis lock)
+│   │       ├── http-meta-gateway.ts        # [NEW] Implementação concreta da porta MetaGatewayPort
+│   │       └── worker.ts                   # Worker factory e processJob
 │   │
-│   └── server.ts                           # Composition Root + bootstrap + graceful shutdown
+│   └── server.ts                           # Composition Root + bootstrap + graceful shutdown com timeout
 │
 ├── tests/
 │   ├── env.test.ts                         # Testes unitários de requireEnv / requirePort
 │   ├── violation.test.ts                   # Testes unitários do schema Zod
-│   ├── worker.test.ts                      # Testes unitários de processJob (fetch mockado)
+│   ├── http-meta-gateway.test.ts           # [NEW] Testes unitários do gateway HTTP espiando o fetch
+│   ├── worker.test.ts                      # Testes unitários de processJob (desacoplados, gateway mockado)
 │   ├── use-cases/                          # Testes unitários com InMemory adapter (sem infra)
-│   │   ├── in-memory-takedown-queue.ts     # Fake repository para testes
-│   │   ├── process-violation.test.ts       # Testes do use case de violação
+│   │   ├── in-memory-takedown-queue.ts     # Fake repository para testes com controle de locks
+│   │   ├── process-violation.test.ts       # Testes do use case de violação (com teste de lock concorrente)
 │   │   └── get-job-status.test.ts          # Testes do use case de status
 │   └── integration/
-│       └── api.test.ts                     # Testes de integração via fastify.inject (InMemory adapter)
-├── scripts/
-│   └── test-api.ps1                        # Script E2E contra a API real em execução
+│       ├── api.test.ts                     # Testes de integração via fastify.inject (health check injetável)
+│       └── api.e2e.test.ts                 # [NEW] Testes E2E multiplataforma em Vitest contra API física real
 ├── docker-compose.yml                      # Redis em container
 ├── .env / .env.example                     # Variáveis de ambiente
 ├── package.json
@@ -139,9 +142,12 @@ Cliente HTTP
 │  Worker  (infrastructure/queue/worker.ts)    │
 │                                              │
 │  processJob(job):                            │
+│    chama MetaGatewayPort.executeTakedown()   │  ──→ injetado de forma desacoplada
+│                                              │
+│  HttpMetaGateway (infrastructure/queue)      │
 │    fetch(JSONPlaceholder, timeout 8s)        │
-│    if !response.ok → throw Error             │  ──→ BullMQ faz retry
-│    return { status, ok: true }               │
+│    if !response.ok → throw ExternalApiError   │  ──→ BullMQ faz retry
+│    return { status }                         │
 └──────────────────────────────────────────────┘
 
 Cliente HTTP
@@ -196,15 +202,15 @@ Implementações concretas:
 - `src/infrastructure/queue/bullmq-takedown-queue.ts` — produção (BullMQ)
 - `tests/use-cases/in-memory-takedown-queue.ts` — testes unitários
 
-### `src/application/use-cases/process-violation.ts` — Idempotência
+### `src/application/use-cases/process-violation.ts` — Idempotência e Concorrência
 
-A idempotência é implementada de forma estrita em duas camadas:
+A idempotência e a proteção de concorrência são implementadas em três camadas transacionais:
 
-1. **Job ID determinístico**: `jobId = adId_tenantId` — o BullMQ usa esse ID como chave no Redis, impedindo dois jobs com o mesmo ID de coexistir.
+1. **Lock Distribuído Temporário (Redis)**: Antes de verificar e adicionar o job, o use case adquire um lock atômico de exclusão mútua de curta duração (5 segundos) no Redis com a chave `lock:job:${jobId}` (usando as opções `'PX', ttl, 'NX'`). Se o lock não for adquirido, o request concorrente falha imediatamente com `409 Conflict`. Isso impede a condição de corrida clássica "Check-Then-Act".
 
-2. **Bloqueio de duplicatas (409)**: antes de enfileirar, o use case verifica se um job com esse ID já existe na fila (em **qualquer estado**: waiting, active, delayed, completed ou failed). Se existir, rejeita imediatamente com `409 Conflict`. Isso garante que uma mesma violação (par `adId`+`tenantId`) seja processada apenas uma única vez na história do sistema.
+2. **Job ID determinístico**: `jobId = adId_tenantId` — o BullMQ usa esse ID como chave exclusiva no Redis, prevenindo jobs duplicados na fila.
 
-> **Trade-off consciente**: a verificação de estado e o enfileiramento não são atômicos em nível de Redis. Em cenários de concorrência extrema (microssegundos), dois requests simultâneos podem ambos passar pela verificação de existência antes de qualquer um enfileirar. O BullMQ protege a fila neste caso (apenas o primeiro job inserido prevalece e o segundo é descartado), mas o contrato HTTP pode retornar dois `201`. Para o escopo do desafio, a proteção do lado da aplicação é suficiente e altamente performática.
+3. **Bloqueio de duplicatas (409)**: Sob a proteção do lock distribuído, o use case verifica se o job já existe na fila. Se existir, lança `ConflictError` (HTTP 409). Isso garante que o contrato HTTP da API seja 100% consistente, respondendo HTTP 201 apenas para a primeira criação e HTTP 409 para solicitações duplicadas simultâneas.
 
 ### `src/application/use-cases/get-job-status.ts` — Consulta
 
@@ -226,10 +232,10 @@ defaultJobOptions: {
 
 ### `src/infrastructure/queue/worker.ts` — Processamento
 
-- Chama `https://jsonplaceholder.typicode.com/posts/1` como mock da Meta API
-- Timeout de 8s via `AbortSignal.timeout`
-- Qualquer resposta não-2xx lança `Error`, delegando retry ao BullMQ
-- Erros de rede (timeout, DNS) propagam diretamente para o BullMQ
+O worker é completamente modular e não se acopla à tecnologia HTTP de integração externa:
+- Depende apenas da interface abstrata `MetaGatewayPort`.
+- Recebe a implementação concreta por injeção (`HttpMetaGateway`) a partir do Composition Root.
+- O `HttpMetaGateway` encapsula as chamadas de rede à Meta API (`jsonplaceholder.typicode.com/posts/1`) com timeout de 8s via `AbortSignal.timeout` e lança `ExternalApiError` para respostas não-2xx, delegando retentativas automáticas ao BullMQ.
 
 ### `src/domain/errors/app-error.ts` + `src/infrastructure/http/error-handler.ts`
 
@@ -258,10 +264,11 @@ app.register(jobRoutes, { getJobStatusUseCase })
 ```
 
 Ao receber `SIGTERM` ou `SIGINT`:
-1. Fecha o worker BullMQ (para de aceitar novos jobs)
-2. Fecha a fila BullMQ
-3. Encerra a conexão Redis (`QUIT`)
-4. Fecha o servidor Fastify
+1. Dispara um timeout de proteção global de 10s. Se os recursos não fecharem nesse período, o processo finaliza forçadamente com `process.exit(1)`, evitando containers zumbis no orquestrador (ECS/K8s).
+2. Fecha o worker BullMQ (para de aceitar novos de forma ordenada).
+3. Fecha a fila BullMQ.
+4. Encerra a conexão Redis (`QUIT`).
+5. Fecha o servidor Fastify.
 
 ---
 
@@ -274,7 +281,7 @@ Ao receber `SIGTERM` ou `SIGINT`:
 | Unitário — Env | Vitest | Não | requireEnv / requirePort: edge cases de configuração |
 | Unitário — Use Cases | Vitest + InMemory adapter | Não | Lógica de negócio sem infraestrutura |
 | Integração — API | Vitest + `fastify.inject` + InMemory adapter | Não | Rotas HTTP completas com adapter em memória |
-| E2E | PowerShell + API real | **Sim** | Fluxo completo end-to-end: 33 asserções |
+| E2E | Vitest + API real | **Sim** | Fluxo completo de conectividade, concorrência por locks, Zod validation e status da API real |
 
 ---
 

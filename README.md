@@ -71,7 +71,7 @@ npm run test:watch
 ```
 
 ### B. Testes End-to-End (E2E) (Requer Redis ativo)
-Validação de ponta a ponta que realiza requisições reais contra a API ativa e verifica o comportamento das filas e a persistência de dados no Redis.
+Validação de ponta a ponta realizada nativamente via Vitest que realiza requisições reais usando fetch contra a API ativa e verifica o comportamento das filas, da concorrência com locks e a persistência de dados no Redis.
 ```bash
 # Executar a suíte de testes E2E
 npm run test:e2e
@@ -84,9 +84,9 @@ npm run test:e2e
 | Comando | Descrição |
 |---|---|
 | `npm run dev` | Inicia o servidor em modo de desenvolvimento com hot-reload. |
-| `npm test` | Executa os testes unitários e de integração uma única vez. |
+| `npm test` | Executa os testes unitários e de integração uma única vez (exclui E2E). |
 | `npm run test:watch` | Executa os testes unitários em modo watch. |
-| `npm run test:e2e` | Executa o script E2E de validação de fluxo contra a API real. |
+| `npm run test:e2e` | Executa os testes E2E nativos do Vitest contra a API real em execução. |
 | `npm run typecheck` | Valida a tipagem estática do TypeScript. |
 | `npm run build` | Compila o código TypeScript para JavaScript de produção (`dist/`). |
 | `npm start` | Executa a build compilada em produção (requer `npm run build`). |
@@ -104,19 +104,19 @@ A API foi projetada focando em resiliência e estabilidade transiente:
 [ Fastify Server ] ──( Validação Zod )
        │
        ▼
-[ ViolationUseCase ] ──( Idempotência: rejeita duplicatas em qualquer estado )
+[ ViolationUseCase ] ──( Idempotência: Lock Redis NX/PX de 5s + Bloqueio 409 )
        │
        ▼  Enfileira com ID determinístico
 [ BullMQ Queue ] ──[ Redis (Persistência) ]
        │
        ▼  Retira da fila assincronamente
-[ Worker / processJob ] ──( Chamada externa mockada com timeout de 8s )
+[ Worker / processJob ] ──( MetaGatewayPort ➔ HttpMetaGateway ➔ chamada mockada timeout 8s )
 ```
 
-* **Idempotência**: Garantida através de identificadores determinísticos baseados na concatenação `adId_tenantId`.
+* **Idempotência e Concorrência**: Garantida através de identificadores determinísticos baseados na concatenação `adId_tenantId` acoplados a um Lock Distribuído curto (5 segundos) no Redis. Isso impede condições de corrida em concorrência extrema e retorna HTTP 409 Conflict consistentemente.
 * **Políticas de Retry**: Até **3 tentativas** automáticas com **backoff exponencial** de 2 segundos (2s, 4s, 8s).
 * **Gestão de Memória**: Expiração de jobs completados após 1 hora e falhados após 24 horas no Redis.
-* **Graceful Shutdown**: Intercepção de sinais `SIGTERM` e `SIGINT` para fechamento seguro de conexões e finalização ordenada de jobs ativos.
+* **Graceful Shutdown**: Intercepção de sinais `SIGTERM` e `SIGINT` para fechamento seguro de conexões, finalização ordenada de jobs ativos com um timeout de segurança de 10 segundos.
 
 Para uma descrição completa da arquitetura do projeto, consulte o **[Guia de Arquitetura](./docs/ARCHITECTURE.md)**.
 

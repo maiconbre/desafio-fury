@@ -10,4 +10,6 @@ export interface TakedownJob {
 export interface TakedownQueuePort {
   getJob(jobId: string): Promise<TakedownJob | null>
   addJob(jobId: string, data: unknown): Promise<TakedownJob>
+  acquireLock(lockKey: string, ttlMs: number): Promise<boolean>
+  releaseLock(lockKey: string): Promise<void>
 }

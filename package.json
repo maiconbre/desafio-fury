@@ -7,9 +7,9 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "vitest run",
+    "test": "vitest run --exclude **/*.e2e.test.ts",
     "test:watch": "vitest",
-    "test:e2e": "powershell -ExecutionPolicy Bypass -File scripts/test-api.ps1",
+    "test:e2e": "vitest run tests/integration/api.e2e.test.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {

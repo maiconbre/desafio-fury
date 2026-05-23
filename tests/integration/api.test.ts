@@ -5,6 +5,7 @@ import { ProcessViolationUseCase } from '../../src/application/use-cases/process
 import { GetJobStatusUseCase } from '../../src/application/use-cases/get-job-status.js'
 import { webhookRoutes } from '../../src/infrastructure/http/routes/webhook.js'
 import { jobRoutes } from '../../src/infrastructure/http/routes/jobs.js'
+import { healthRoutes } from '../../src/infrastructure/http/routes/health.js'
 import { errorHandler } from '../../src/infrastructure/http/error-handler.js'
 
 describe('API Integration', () => {
@@ -19,11 +20,7 @@ describe('API Integration', () => {
     app = Fastify()
     app.setErrorHandler(errorHandler)
 
-    app.get('/health', () => ({
-      status: 'ok',
-      redis: 'connected',
-      timestamp: new Date().toISOString(),
-    }))
+    app.register(healthRoutes, { ping: () => Promise.resolve() })
     app.register(webhookRoutes, { processViolationUseCase })
     app.register(jobRoutes, { getJobStatusUseCase })
     await app.ready()
@@ -51,14 +48,7 @@ describe('API Integration', () => {
       const pingMock = { ping: vi.fn().mockRejectedValueOnce(new Error('ECONNREFUSED')) }
 
       const degradedApp = Fastify()
-      degradedApp.get('/health', async (_, reply) => {
-        try {
-          await pingMock.ping()
-          return reply.send({ status: 'ok', redis: 'connected', timestamp: new Date().toISOString() })
-        } catch {
-          return reply.status(503).send({ status: 'degraded', redis: 'disconnected', timestamp: new Date().toISOString() })
-        }
-      })
+      degradedApp.register(healthRoutes, { ping: () => pingMock.ping() })
       await degradedApp.ready()
 
       const response = await degradedApp.inject({ method: 'GET', url: '/health' })

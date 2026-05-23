@@ -50,6 +50,14 @@ describe('ProcessViolationUseCase', () => {
 
   // ─── Idempotência ──────────────────────────────────────────────────────────
 
+  it('throws ConflictError when lock is already acquired by another request (concurrency)', async () => {
+    const jobId = `${validPayload.adId}_${validPayload.tenantId}`
+    await queue.acquireLock(`lock:job:${jobId}`, 5000)
+
+    await expect(useCase.execute(validPayload)).rejects.toThrow(ConflictError)
+    expect(queue.addCalls).toHaveLength(0)
+  })
+
   it('throws ConflictError when job with same adId+tenantId already exists (waiting)', async () => {
     await useCase.execute(validPayload)
 

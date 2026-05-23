@@ -281,7 +281,7 @@ const response = await fetch(META_API_MOCK, { signal: AbortSignal.timeout(8000) 
 
 ---
 
-## Fase 10 — Melhorias Pós-Revisão
+## Fase 10 — Melhorias Primeira Revisão
 
 Após revisão crítica do código, 11 melhorias foram identificadas e aplicadas para elevar a qualidade do projeto. Nenhuma delas adiciona funcionalidade fora do escopo do desafio — todas são refinamentos de qualidade e consistência.
 
@@ -334,3 +334,37 @@ O trade-off da race condition de idempotência estava documentado apenas no `DEV
 **C3 — Atualização deste DEVELOPMENT_LOG**
 
 Este registro documenta as melhorias aplicadas na Fase 10.
+
+---
+
+## Fase 11 — Refatoração e Operações Avançadas (Pós-Revisão)
+
+Após uma rodada de revisão sob critérios rigorosos, o projeto foi submetido a uma grande refatoração de infraestrutura, concorrência e testes para atingir estabilidade de produção corporativa premium.
+
+### Melhorias Técnicas Implementadas:
+
+1. **DIP na Meta API (Worker)**:
+   - Criada a porta pura no domínio `MetaGatewayPort` e a implementação concreta `HttpMetaGateway` na infraestrutura.
+   - Refatorado o worker para aceitar injeção de dependência via factories (`createProcessJob` e `setupWorker`).
+   - Mocks de testes no `worker.test.ts` foram simplificados drasticamente, deixando de depender de simulação interna do BullMQ e de sockets de rede globais.
+
+2. **Neutralização de Race Conditions (Idempotência Transacional)**:
+   - Implementado um controle de exclusão mútua curto (lock distribuído de 5s com opções `'PX', ttlMs, 'NX'`) no Redis antes de realizar o check-then-act do enfileiramento de jobs no use case `ProcessViolationUseCase`.
+   - Garante que webhooks duplicados em microssegundos respondam de forma consistente HTTP 409 Conflict, protegendo o contrato HTTP e a integridade da fila do BullMQ.
+
+3. **Novo E2E Nativo Multiplataforma (Vitest)**:
+   - O script PowerShell legado `scripts/test-api.ps1` foi excluído.
+   - Criada a suíte de testes E2E `tests/integration/api.e2e.test.ts` escrita em Vitest usando requests físicos locais.
+   - Scripts do `package.json` unificados e compatibilizados para rodar nativamente em qualquer sistema operacional (inclusive containers Docker e pipelines de CI/CD Linux).
+
+4. **Tratamento de Erros e Health Check Injetável**:
+   - Correção do handler global de erros no Fastify (`error-handler.ts`) para erros HTTP nativos de infraestrutura menor que 500 (ex: payload JSON corrompido com status 400). Erros não são mais ocultados como HTTP 500.
+   - Desacoplada a rota de saúde `/health` em um plugin de rotas isolado `healthRoutes`, permitindo injetar dinamicamente a verificação de ping do Redis tanto no Composition Root quanto nos testes de integração.
+
+5. **Timeout no Graceful Shutdown**:
+   - Implementado um timeout global de 10s no shutdown do `server.ts` que força a saída com erro (`process.exit(1)`) caso conexões ativas travem no término do processo.
+
+### Homologação Final da Fase 11:
+- `npm run typecheck` completado com **100% de sucesso**.
+- `npm test` executando **53 testes unitários e de integração passados**.
+- `npm run test:e2e` executando **17 testes E2E reais passados** contra o Redis e servidor ativo.

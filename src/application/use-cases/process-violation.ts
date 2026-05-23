@@ -18,19 +18,30 @@ export class ProcessViolationUseCase {
 
     const { adId, tenantId } = parsed.data
     const jobId = `${adId}_${tenantId}`
+    const lockKey = `lock:job:${jobId}`
 
-    // Idempotência: qualquer job já registrado para o mesmo adId+tenantId
-    // deve retornar 409 Conflict, evitando processamentos duplicados.
-    const existingJob = await this.queue.getJob(jobId)
-
-    if (existingJob) {
+    // Idempotência Transacional: Adquire lock de exclusão mútua curto (5 segundos)
+    const acquired = await this.queue.acquireLock(lockKey, 5000)
+    if (!acquired) {
       throw new ConflictError(
-        `A job for adId "${adId}" and tenantId "${tenantId}" already exists`,
+        `A job creation request for adId "${adId}" and tenantId "${tenantId}" is already being processed`,
       )
     }
 
-    const job = await this.queue.addJob(jobId, parsed.data)
+    try {
+      const existingJob = await this.queue.getJob(jobId)
 
-    return { jobId: job.id }
+      if (existingJob) {
+        throw new ConflictError(
+          `A job for adId "${adId}" and tenantId "${tenantId}" already exists`,
+        )
+      }
+
+      const job = await this.queue.addJob(jobId, parsed.data)
+
+      return { jobId: job.id }
+    } finally {
+      await this.queue.releaseLock(lockKey)
+    }
   }
 }

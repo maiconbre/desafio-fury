@@ -17,5 +17,16 @@ export function errorHandler(error: unknown, _request: FastifyRequest, reply: Fa
     return reply.status(error.statusCode).send(response)
   }
 
+  // Tratar erros nativos do Fastify (ex: payload JSON malformado)
+  if (error && typeof error === 'object' && 'statusCode' in error) {
+    const statusCode = (error as { statusCode: unknown }).statusCode
+    if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
+      const message = 'message' in error && typeof (error as { message: unknown }).message === 'string'
+        ? (error as { message: string }).message
+        : 'Bad request'
+      return reply.status(statusCode).send(badRequest(message))
+    }
+  }
+
   return reply.status(500).send(internal('An unexpected error occurred'))
 }
