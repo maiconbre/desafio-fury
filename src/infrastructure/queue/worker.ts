@@ -19,11 +19,13 @@ export async function processJob(job: { data: ViolationPayload }): Promise<Taked
     })
   }
 
-  return { status: response.status, ok: true }
+  return { status: response.status }
 }
 
 export const worker = new Worker<ViolationPayload>('takedown', processJob, {
   connection,
+  // concurrency: 1 → conservador para o mock JSONPlaceholder.
+  // Em produção com a Meta API real, avaliar aumento baseado nos rate limits da API.
   concurrency: 1,
   lockDuration: 30000,
   stalledInterval: 15000,

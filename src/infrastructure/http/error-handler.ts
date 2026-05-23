@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
-import { AppError, ValidationError, badRequest, internal, notFound, conflict } from '../../domain/errors/app-error.js'
+import { AppError, ValidationError, ErrorResponse, badRequest, internal, notFound, conflict } from '../../domain/errors/app-error.js'
 
-const ERROR_MAP: Record<number, (msg: string) => ReturnType<typeof internal>> = {
+const ERROR_MAP: Record<number, (msg: string) => ErrorResponse> = {
   400: (m) => badRequest(m),
   404: (m) => notFound(m),
   409: (m) => conflict(m),

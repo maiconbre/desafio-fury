@@ -16,7 +16,7 @@ describe('GetJobStatusUseCase', () => {
     const job = await queue.addJob('ad-123_tenant-456', {})
     job.status = 'completed'
     job.attemptsMade = 1
-    job.returnValue = { status: 200, ok: true }
+    job.returnValue = { status: 200 }
 
     const result = await useCase.execute('ad-123_tenant-456')
 
@@ -24,7 +24,7 @@ describe('GetJobStatusUseCase', () => {
       jobId: 'ad-123_tenant-456',
       status: 'completed',
       attempts: 1,
-      result: { status: 200, ok: true },
+      result: { status: 200 },
       error: null,
     })
   })

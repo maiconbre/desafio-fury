@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ViolationPayload } from '../src/domain/models/violation.js'
+import { ExternalApiError } from '../src/domain/errors/app-error.js'
 
 vi.mock('../src/infrastructure/queue/connection.js', () => ({
   connection: {},
 }))
 
-vi.mock('bullmq', () => {
-  const EventEmitter = require('node:events')
+vi.mock('bullmq', async () => {
+  const { EventEmitter } = await import('node:events')
   class MockWorker extends EventEmitter {
     constructor() { super() }
     close() { return Promise.resolve() }
@@ -35,7 +36,9 @@ describe('processJob', () => {
     vi.restoreAllMocks()
   })
 
-  it('returns success when fetch returns 2xx', async () => {
+  // ─── Success ───────────────────────────────────────────────────────────────
+
+  it('returns { status: 200 } when Meta API responds 200', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(JSON.stringify({ id: 1 }), { status: 200 }),
     )
@@ -43,24 +46,46 @@ describe('processJob', () => {
     const { processJob } = await import('../src/infrastructure/queue/worker.js')
     const result = await processJob({ data: validData })
 
-    expect(result).toEqual({ status: 200, ok: true })
+    expect(result).toEqual({ status: 200 })
   })
 
-  it.each([400, 401, 403, 404, 429, 500, 503])('throws when fetch returns %i (4xx/5xx)', async (status) => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response(null, { status }),
-    )
+  // ─── HTTP Errors (!response.ok) — deve lançar ExternalApiError ────────────
+
+  it('throws ExternalApiError when Meta API returns a client error (e.g. 400)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 400 }))
 
     const { processJob } = await import('../src/infrastructure/queue/worker.js')
-    await expect(processJob({ data: validData })).rejects.toThrow(
-      `Meta API responded with ${status}`,
-    )
+    await expect(processJob({ data: validData })).rejects.toMatchObject({
+      name: 'ExternalApiError',
+      message: 'Meta API responded with 400',
+    })
   })
 
-  it('throws on network error', async () => {
+  it('throws ExternalApiError when Meta API returns a server error (e.g. 500)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 500 }))
+
+    const { processJob } = await import('../src/infrastructure/queue/worker.js')
+    await expect(processJob({ data: validData })).rejects.toMatchObject({
+      name: 'ExternalApiError',
+      message: 'Meta API responded with 500',
+    })
+  })
+
+  // ─── Network / timeout errors ──────────────────────────────────────────────
+
+  it('propagates network error (ECONNREFUSED, etc.)', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('Network timeout'))
 
     const { processJob } = await import('../src/infrastructure/queue/worker.js')
     await expect(processJob({ data: validData })).rejects.toThrow('Network timeout')
   })
+
+  it('propagates AbortSignal timeout as DOMException', async () => {
+    const abortError = new DOMException('The operation was aborted.', 'AbortError')
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(abortError)
+
+    const { processJob } = await import('../src/infrastructure/queue/worker.js')
+    await expect(processJob({ data: validData })).rejects.toThrow('The operation was aborted.')
+  })
 })
+

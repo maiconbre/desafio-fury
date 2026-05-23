@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "powershell -ExecutionPolicy Bypass -File scripts/test-api.ps1",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
     "bullmq": "^5.34.0",
@@ -24,5 +24,8 @@
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

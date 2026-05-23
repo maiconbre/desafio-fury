@@ -19,16 +19,14 @@ export class ProcessViolationUseCase {
     const { adId, tenantId } = parsed.data
     const jobId = `${adId}_${tenantId}`
 
+    // Idempotência: qualquer job já registrado para o mesmo adId+tenantId
+    // deve retornar 409 Conflict, evitando processamentos duplicados.
     const existingJob = await this.queue.getJob(jobId)
 
     if (existingJob) {
-      if (['waiting', 'active', 'delayed'].includes(existingJob.status)) {
-        throw new ConflictError(
-          `A job for adId "${adId}" and tenantId "${tenantId}" is already pending or in progress`,
-        )
-      }
-
-      await existingJob.remove()
+      throw new ConflictError(
+        `A job for adId "${adId}" and tenantId "${tenantId}" already exists`,
+      )
     }
 
     const job = await this.queue.addJob(jobId, parsed.data)

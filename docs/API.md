@@ -85,12 +85,12 @@ Retornado caso os dados enviados sejam inválidos em relação ao esquema Zod.
   ```
 
 ##### **409 Conflict**
-Retornado se um processo de remoção (takedown job) para a mesma combinação de `adId` e `tenantId` já estiver ativo (processando) ou aguardando execução na fila.
+Retornado se um processo de remoção (takedown job) para a mesma combinação de `adId` e `tenantId` já tiver sido submetido à fila, independentemente do seu estado atual (aguardando, ativo, concluído ou com falha).
 - **Corpo da Resposta**:
   ```json
   {
     "error": "Conflict",
-    "message": "A takedown job for this ad and tenant is already active or waiting"
+    "message": "A job for adId \"ad-123\" and tenantId \"tenant-456\" already exists"
   }
   ```
   > [!TIP]

@@ -198,13 +198,13 @@ Implementações concretas:
 
 ### `src/application/use-cases/process-violation.ts` — Idempotência
 
-A idempotência é implementada em duas camadas:
+A idempotência é implementada de forma estrita em duas camadas:
 
-1. **Job ID determinístico**: `jobId = adId_tenantId` — o BullMQ usa esse ID como chave no Redis, impedindo dois jobs com o mesmo ID de coexistir simultaneamente.
+1. **Job ID determinístico**: `jobId = adId_tenantId` — o BullMQ usa esse ID como chave no Redis, impedindo dois jobs com o mesmo ID de coexistir.
 
-2. **Verificação de estado**: antes de enfileirar, o use case consulta o estado atual do job. Se o estado for `waiting`, `active` ou `delayed`, retorna `409 Conflict`. Se for `completed` ou `failed`, remove o job antigo e cria um novo (permite reprocessamento).
+2. **Bloqueio de duplicatas (409)**: antes de enfileirar, o use case verifica se um job com esse ID já existe na fila (em **qualquer estado**: waiting, active, delayed, completed ou failed). Se existir, rejeita imediatamente com `409 Conflict`. Isso garante que uma mesma violação (par `adId`+`tenantId`) seja processada apenas uma única vez na história do sistema.
 
-> **Trade-off consciente**: a verificação de estado e o enfileiramento não são atômicos. Em cenários de concorrência extrema, dois requests simultâneos podem ambos passar pela verificação antes de qualquer um enfileirar. O BullMQ protege a fila neste caso (apenas um job prevalece), mas o contrato HTTP pode retornar dois `201`. Para o escopo do desafio, esse nível de risco é aceitável.
+> **Trade-off consciente**: a verificação de estado e o enfileiramento não são atômicos em nível de Redis. Em cenários de concorrência extrema (microssegundos), dois requests simultâneos podem ambos passar pela verificação de existência antes de qualquer um enfileirar. O BullMQ protege a fila neste caso (apenas o primeiro job inserido prevalece e o segundo é descartado), mas o contrato HTTP pode retornar dois `201`. Para o escopo do desafio, a proteção do lado da aplicação é suficiente e altamente performática.
 
 ### `src/application/use-cases/get-job-status.ts` — Consulta
 

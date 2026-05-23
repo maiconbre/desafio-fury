@@ -23,5 +23,4 @@ export const violationSchema = z.object({
 
 export const takedownResultSchema = z.object({
   status: z.number(),
-  ok: z.literal(true),
 })

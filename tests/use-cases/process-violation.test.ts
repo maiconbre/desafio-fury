@@ -20,6 +20,8 @@ describe('ProcessViolationUseCase', () => {
     useCase = new ProcessViolationUseCase(queue)
   })
 
+  // ─── Happy path ────────────────────────────────────────────────────────────
+
   it('adds job and returns jobId for valid payload', async () => {
     const result = await useCase.execute(validPayload)
 
@@ -31,45 +33,61 @@ describe('ProcessViolationUseCase', () => {
     })
   })
 
-  it('throws ValidationError for invalid payload', async () => {
-    await expect(useCase.execute({})).rejects.toThrow(ValidationError)
+  it('jobId is composed as adId_tenantId', async () => {
+    const result = await useCase.execute({ ...validPayload, adId: 'foo', tenantId: 'bar' })
+    expect(result.jobId).toBe('foo_bar')
   })
 
-  it('throws ValidationError with details for partial payload', async () => {
+  // ─── Validation ────────────────────────────────────────────────────────────
+
+  it('throws ValidationError with issues array for invalid payload', async () => {
+    // A validação completa do schema já é coberta pelo violation.test.ts
     await expect(useCase.execute({ adId: 'only' })).rejects.toMatchObject({
       name: 'ValidationError',
       details: expect.any(Array),
     })
   })
 
-  it('throws ConflictError when duplicate job is in active/waiting/delayed status', async () => {
-    // Adiciona o primeiro job (vai com status 'waiting' por padrão)
+  // ─── Idempotência ──────────────────────────────────────────────────────────
+
+  it('throws ConflictError when job with same adId+tenantId already exists (waiting)', async () => {
     await useCase.execute(validPayload)
 
-    // Tenta re-adicionar e deve falhar
     await expect(useCase.execute(validPayload)).rejects.toThrow(ConflictError)
   })
 
-  it('removes completed job and adds a new one', async () => {
-    // Adiciona o job
-    const job = await queue.addJob('ad-123_tenant-456', validPayload)
-    // Força o status para completed
-    job.status = 'completed'
+  it.each(['waiting', 'active', 'delayed', 'completed', 'failed'] as const)(
+    'throws ConflictError regardless of existing job status: %s',
+    async (status) => {
+      const job = await queue.addJob('ad-123_tenant-456', validPayload)
+      job.status = status
 
-    const result = await useCase.execute(validPayload)
+      await expect(useCase.execute(validPayload)).rejects.toThrow(ConflictError)
+    },
+  )
 
-    expect(result).toEqual({ jobId: 'ad-123_tenant-456' })
-    // Deve ter chamado addJob (que incrementa a lista de chamadas de add)
+  it('ConflictError message contains adId and tenantId', async () => {
+    await useCase.execute(validPayload)
+
+    await expect(useCase.execute(validPayload)).rejects.toMatchObject({
+      name: 'ConflictError',
+      message: expect.stringContaining('ad-123'),
+    })
+  })
+
+  it('allows new job for different tenantId on same adId', async () => {
+    await useCase.execute(validPayload)
+    const result = await useCase.execute({ ...validPayload, tenantId: 'other-tenant' })
+
+    expect(result.jobId).toBe('ad-123_other-tenant')
     expect(queue.addCalls).toHaveLength(2)
   })
 
-  it('removes failed job and adds a new one', async () => {
-    const job = await queue.addJob('ad-123_tenant-456', validPayload)
-    job.status = 'failed'
+  it('allows new job for different adId on same tenantId', async () => {
+    await useCase.execute(validPayload)
+    const result = await useCase.execute({ ...validPayload, adId: 'other-ad' })
 
-    const result = await useCase.execute(validPayload)
-
-    expect(result).toEqual({ jobId: 'ad-123_tenant-456' })
+    expect(result.jobId).toBe('other-ad_tenant-456')
     expect(queue.addCalls).toHaveLength(2)
   })
 })

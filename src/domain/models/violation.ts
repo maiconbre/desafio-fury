@@ -12,5 +12,4 @@ export interface ViolationPayload {
 
 export interface TakedownResult {
   status: number
-  ok: true
 }

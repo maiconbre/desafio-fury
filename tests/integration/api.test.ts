@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import Fastify from 'fastify'
 import { InMemoryTakedownQueue } from '../use-cases/in-memory-takedown-queue.js'
 import { ProcessViolationUseCase } from '../../src/application/use-cases/process-violation.js'
@@ -17,23 +17,61 @@ describe('API Integration', () => {
     const getJobStatusUseCase = new GetJobStatusUseCase(queue)
 
     app = Fastify()
-
     app.setErrorHandler(errorHandler)
 
-    app.get('/health', () => ({ status: 'ok', timestamp: new Date().toISOString() }))
+    app.get('/health', () => ({
+      status: 'ok',
+      redis: 'connected',
+      timestamp: new Date().toISOString(),
+    }))
     app.register(webhookRoutes, { processViolationUseCase })
     app.register(jobRoutes, { getJobStatusUseCase })
     await app.ready()
   })
 
+  afterEach(async () => {
+    await app.close()
+  })
+
+  // ─── GET /health ───────────────────────────────────────────────────────────
+
   describe('GET /health', () => {
-    it('returns 200 with status ok', async () => {
+    it('returns 200 with status ok, redis connected, and timestamp', async () => {
       const response = await app.inject({ method: 'GET', url: '/health' })
 
       expect(response.statusCode).toBe(200)
-      expect(response.json()).toMatchObject({ status: 'ok' })
+      const body = response.json()
+      expect(body.status).toBe('ok')
+      expect(body.redis).toBe('connected')
+      expect(body.timestamp).toBeDefined()
+      expect(new Date(body.timestamp).getTime()).not.toBeNaN()
+    })
+
+    it('returns 503 when Redis ping fails (degraded mode)', async () => {
+      const pingMock = { ping: vi.fn().mockRejectedValueOnce(new Error('ECONNREFUSED')) }
+
+      const degradedApp = Fastify()
+      degradedApp.get('/health', async (_, reply) => {
+        try {
+          await pingMock.ping()
+          return reply.send({ status: 'ok', redis: 'connected', timestamp: new Date().toISOString() })
+        } catch {
+          return reply.status(503).send({ status: 'degraded', redis: 'disconnected', timestamp: new Date().toISOString() })
+        }
+      })
+      await degradedApp.ready()
+
+      const response = await degradedApp.inject({ method: 'GET', url: '/health' })
+
+      expect(response.statusCode).toBe(503)
+      expect(response.json()).toMatchObject({ status: 'degraded', redis: 'disconnected' })
+      expect(response.json()).toHaveProperty('timestamp')
+
+      await degradedApp.close()
     })
   })
+
+  // ─── POST /webhook/violation ───────────────────────────────────────────────
 
   describe('POST /webhook/violation', () => {
     const validBody = {
@@ -44,7 +82,7 @@ describe('API Integration', () => {
       detectedAt: '2026-05-21T10:00:00.000Z',
     }
 
-    it('returns 201 with jobId for valid payload', async () => {
+    it('returns 201 with deterministic jobId (adId_tenantId)', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/webhook/violation',
@@ -55,7 +93,7 @@ describe('API Integration', () => {
       expect(response.json()).toEqual({ jobId: 'ad-123_tenant-456' })
     })
 
-    it('returns 400 for invalid payload', async () => {
+    it('returns 400 for invalid payload — shape: error + message + details', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/webhook/violation',
@@ -66,15 +104,21 @@ describe('API Integration', () => {
       const body = response.json()
       expect(body.error).toBe('Bad request')
       expect(body.message).toBe('Invalid payload')
-      expect(body.details).toBeDefined()
+      expect(Array.isArray(body.details)).toBe(true)
+      expect(body.details.length).toBeGreaterThan(0)
     })
 
-    it('returns 409 for duplicate job', async () => {
-      await app.inject({
+    it('returns 400 for empty body', async () => {
+      const response = await app.inject({
         method: 'POST',
         url: '/webhook/violation',
-        body: validBody,
+        body: {},
       })
+      expect(response.statusCode).toBe(400)
+    })
+
+    it('returns 409 for duplicate adId+tenantId — shape: error + message', async () => {
+      await app.inject({ method: 'POST', url: '/webhook/violation', body: validBody })
 
       const response = await app.inject({
         method: 'POST',
@@ -88,10 +132,25 @@ describe('API Integration', () => {
       expect(body.message).toContain('ad-123')
       expect(body.message).toContain('tenant-456')
     })
+
+    it('allows duplicate adId with different tenantId', async () => {
+      await app.inject({ method: 'POST', url: '/webhook/violation', body: validBody })
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/webhook/violation',
+        body: { ...validBody, tenantId: 'tenant-other' },
+      })
+
+      expect(response.statusCode).toBe(201)
+      expect(response.json().jobId).toBe('ad-123_tenant-other')
+    })
   })
 
+  // ─── GET /jobs/:id ─────────────────────────────────────────────────────────
+
   describe('GET /jobs/:id', () => {
-    it('returns 200 with job status for existing job', async () => {
+    it('returns 200 with full job shape for a completed job', async () => {
       await app.inject({
         method: 'POST',
         url: '/webhook/violation',
@@ -109,29 +168,76 @@ describe('API Integration', () => {
       if (job) {
         job.status = 'completed'
         job.attemptsMade = 1
-        job.returnValue = { status: 200, ok: true }
+        job.returnValue = { status: 200 }
       }
 
-      const response = await app.inject({
-        method: 'GET',
-        url: `/jobs/${jobId}`,
-      })
+      const response = await app.inject({ method: 'GET', url: `/jobs/${jobId}` })
 
       expect(response.statusCode).toBe(200)
       expect(response.json()).toEqual({
         jobId,
         status: 'completed',
         attempts: 1,
-        result: { status: 200, ok: true },
+        result: { status: 200 },
         error: null,
       })
     })
 
-    it('returns 404 for non-existent job', async () => {
-      const response = await app.inject({
-        method: 'GET',
-        url: '/jobs/inexistente',
+    it('returns 200 with error field populated for a failed job', async () => {
+      await app.inject({
+        method: 'POST',
+        url: '/webhook/violation',
+        body: {
+          adId: 'ad-fail',
+          tenantId: 'tenant-fail',
+          violationType: 'BRAND_VIOLATION' as const,
+          severity: 'CRITICAL' as const,
+          detectedAt: '2026-05-21T10:00:00.000Z',
+        },
       })
+
+      const jobId = 'ad-fail_tenant-fail'
+      const job = await queue.getJob(jobId)
+      if (job) {
+        job.status = 'failed'
+        job.attemptsMade = 3
+        job.failedReason = 'Meta API responded with 500'
+      }
+
+      const response = await app.inject({ method: 'GET', url: `/jobs/${jobId}` })
+
+      expect(response.statusCode).toBe(200)
+      const body = response.json()
+      expect(body.status).toBe('failed')
+      expect(body.attempts).toBe(3)
+      expect(body.error).toBe('Meta API responded with 500')
+      expect(body.result).toEqual({})
+    })
+
+    it('returns 200 with empty result for waiting job', async () => {
+      await app.inject({
+        method: 'POST',
+        url: '/webhook/violation',
+        body: {
+          adId: 'ad-wait',
+          tenantId: 'tenant-wait',
+          violationType: 'COMPLIANCE_FAIL' as const,
+          severity: 'MEDIUM' as const,
+          detectedAt: '2026-05-21T10:00:00.000Z',
+        },
+      })
+
+      const response = await app.inject({ method: 'GET', url: '/jobs/ad-wait_tenant-wait' })
+
+      expect(response.statusCode).toBe(200)
+      const body = response.json()
+      expect(body.status).toBe('waiting')
+      expect(body.result).toEqual({})
+      expect(body.error).toBeNull()
+    })
+
+    it('returns 404 — shape: error + message containing jobId', async () => {
+      const response = await app.inject({ method: 'GET', url: '/jobs/inexistente' })
 
       expect(response.statusCode).toBe(404)
       expect(response.json()).toMatchObject({
@@ -141,3 +247,4 @@ describe('API Integration', () => {
     })
   })
 })
+

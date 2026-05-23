@@ -104,7 +104,7 @@ A API foi projetada focando em resiliência e estabilidade transiente:
 [ Fastify Server ] ──( Validação Zod )
        │
        ▼
-[ ViolationService ] ──( Idempotência: rejeita se job estiver pendente/ativo )
+[ ViolationUseCase ] ──( Idempotência: rejeita duplicatas em qualquer estado )
        │
        ▼  Enfileira com ID determinístico
 [ BullMQ Queue ] ──[ Redis (Persistência) ]

@@ -56,13 +56,13 @@ O desenvolvimento foi feito com auxílio do **Claude (Anthropic)** via Antigravi
 
 | Suite | Testes | O que cobre |
 |---|---|---|
-| `violation.test.ts` | 9 | Schema Zod — todos os campos, enums, datetime, strings vazias |
-| `worker.test.ts` | 9 | processJob — 2xx, 4xx/5xx via `it.each` (7 códigos), erro de rede |
-| `env.test.ts` | 13 | requirePort + requireEnv — NaN, float, negativo, 0, >65535, boundaries |
-| `services/violation.service.test.ts` | 5 | processViolation — sucesso, 400, 409, re-enqueue completed/failed |
-| `services/job.service.test.ts` | 7 | getJobStatus — 200, 404, sem result, failed, attempts |
-| `integration/api.test.ts` | 6 | HTTP contract — Fastify inject() com BullMQ mockado |
-| **Total** | **49** | **6 suites, todas as camadas** |
+| `violation.test.ts` | 9 | Schema Zod — exaustivo em tipos, campos e formato de data |
+| `worker.test.ts` | 5 | processJob — success, 400, 500, network error, timeout abort |
+| `env.test.ts` | 5 | Configuração — valida limites da porta e parse de variáveis nativas |
+| `use-cases/process-violation.test.ts` | 12 | Delegação p/ fila, verificação exata de idempotência e propagação de ValidationError |
+| `use-cases/get-job-status.test.ts` | 7 | Transformação de status, 404 para jobs inexistentes |
+| `integration/api.test.ts` | 11 | Contrato HTTP completo com InMemoryAdapter e mock de injeção |
+| **Total** | **49** | **6 suites** |
 
 ### Fase 8 — Documentação
 
@@ -224,8 +224,7 @@ const response = await fetch(META_API_MOCK, { signal: AbortSignal.timeout(8000) 
 | Zero `as` (type assertions) em `src/` | ✅ |
 | Zod valida todos os campos (enums, ISO 8601, min(1)) | ✅ |
 | Backoff exponencial (3 tentativas, delay 2s) | ✅ |
-| Idempotência: `waiting/active/delayed` → 409 | ✅ |
-| Idempotência: `completed/failed` → remove + re-enqueue | ✅ |
+| Idempotência estrita: 409 Conflict para duplicatas em *qualquer* estado | ✅ |
 | GET /jobs/:id retorna 404 se job não existe | ✅ |
 | Payload inválido retorna 400 com detalhes Zod | ✅ |
 | Worker trata erro HTTP e de rede → retry automático | ✅ |
@@ -234,7 +233,7 @@ const response = await fetch(META_API_MOCK, { signal: AbortSignal.timeout(8000) 
 | Logger Pino estruturado (zero console.log) | ✅ |
 | README com instruções completas e curl examples | ✅ |
 | `docker-compose.yml` funcional | ✅ |
-| 50 testes unitários passando | ✅ |
+| 49 testes unitários/integração passando | ✅ |
 | 33 asserções E2E passando (API real) | ✅ |
 | Clean Architecture: domínio puro (zero dependências externas) | ✅ |
 | Clean Architecture: DIP com port + adapter | ✅ |
@@ -252,7 +251,7 @@ const response = await fetch(META_API_MOCK, { signal: AbortSignal.timeout(8000) 
 | 3 | HTTP 400 com erros detalhados | `ValidationError` com `details: ZodError.issues` | ✅ |
 | 4 | BullMQ + Redis (Docker) | `src/infrastructure/queue/` + `docker-compose.yml` | ✅ |
 | 5 | Worker → JSONPlaceholder | `fetch` com `AbortSignal.timeout(8000)` | ✅ |
-| 6 | Tratamento 2xx | `{ status, ok: true }` tipado via `takedownResultSchema` | ✅ |
+| 6 | Tratamento 2xx | `{ status }` tipado via `takedownResultSchema` | ✅ |
 | 7 | Tratamento 4xx/5xx | `throw new Error()` → retry automático BullMQ | ✅ |
 | 8 | Timeout/rede | `AbortSignal.timeout(8000)` captura ambos | ✅ |
 | 9 | `GET /jobs/:id` | `src/infrastructure/http/routes/jobs.ts` → `GetJobStatusUseCase` | ✅ |
@@ -279,3 +278,59 @@ const response = await fetch(META_API_MOCK, { signal: AbortSignal.timeout(8000) 
 | Controllers thin (HTTP only) | ✅ | `src/infrastructure/http/routes/` — delegam para use cases |
 | Testes com Fake Repository | ✅ | `InMemoryTakedownQueue` — testes de use case sem mocks de infraestrutura |
 | Erros de domínio isolados | ✅ | `src/domain/errors/app-error.ts` — sem dependência de framework HTTP |
+
+---
+
+## Fase 10 — Melhorias Pós-Revisão
+
+Após revisão crítica do código, 11 melhorias foram identificadas e aplicadas para elevar a qualidade do projeto. Nenhuma delas adiciona funcionalidade fora do escopo do desafio — todas são refinamentos de qualidade e consistência.
+
+### Grupo A — Correção de inconsistências
+
+**A1 — `logger.ts` → `config/env.ts`**
+
+O `logger.ts` lia `process.env.LOG_LEVEL` diretamente, bypassando o módulo centralizado de configuração. Corrigido para importar `env.LOG_LEVEL` de `config/env.ts` — único ponto de acesso a variáveis de ambiente na aplicação.
+
+**A2 — `require()` → `import()` dinâmico em `worker.test.ts`**
+
+O mock do BullMQ usava `require('node:events')` dentro de `vi.mock()` em projeto ESM (`"type": "module"`). Substituído por factory assíncrona com `await import('node:events')` — comportamento correto para ESM.
+
+**A3 — `tsconfig.test.json` + typecheck dos testes**
+
+`tsc --noEmit` não validava os arquivos em `tests/` (excluídos do `tsconfig.json` base). Criado `tsconfig.test.json` que extende o base e inclui `tests/`. O script `typecheck` agora valida ambos: `tsc --noEmit && tsc -p tsconfig.test.json --noEmit`.
+
+**A4 — `.env.example` versionado**
+
+O repositório não tinha um `.env.example` versionado. Criado com todos os campos documentados (REDIS_URL, PORT, LOG_LEVEL) e instruções de uso. O `.env` local continua ignorado pelo `.gitignore`.
+
+**A5 — Removido `ok: true` como literal type**
+
+`TakedownResult.ok: true` era um literal fixo sem valor discriminante — o worker nunca retorna `ok: false`, então o tipo não acrescentava nada. Removido de `domain/models/violation.ts`, `application/dtos/violation.dto.ts`, `infrastructure/queue/worker.ts` e testes correspondentes.
+
+**A6 — `error-handler.ts`: `ErrorResponse` no `ERROR_MAP`**
+
+O tipo `ReturnType<typeof internal>` no `ERROR_MAP` era desnecessariamente verboso. Substituído pela interface `ErrorResponse` que já existia no arquivo `app-error.ts` — mais legível e semânticamente correto.
+
+### Grupo B — Cobertura de testes
+
+**B1 — Teste do health check degradado (503)**
+
+O cenário de Redis offline no `/health` estava implementado mas sem teste. Adicionado teste em `api.test.ts` que usa uma instância Fastify isolada com `ping()` mockado para lançar exceção — sem depender de Redis real.
+
+**B4 — Comentário `concurrency: 1` no worker**
+
+Adicionado comentário explicando que `concurrency: 1` é conservador para o mock JSONPlaceholder e que em produção com a Meta API real o valor deve ser avaliado com base nos rate limits.
+
+### Grupo C — Polimento arquitetural
+
+**C1 — `engines` no `package.json`**
+
+Adicionado `"engines": { "node": ">=18.0.0" }` formalizando o requisito de Node.js já mencionado no README.
+
+**C2 — Comentário inline da race condition**
+
+O trade-off da race condition de idempotência estava documentado apenas no `DEVELOPMENT_LOG.md`. Movido para comentário inline em `process-violation.ts`, no ponto exato onde o gap existe — visível para qualquer revisor de PR.
+
+**C3 — Atualização deste DEVELOPMENT_LOG**
+
+Este registro documenta as melhorias aplicadas na Fase 10.
