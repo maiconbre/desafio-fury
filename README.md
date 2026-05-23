@@ -1,264 +1,101 @@
 # FURY
 
-> API robusta e resiliente em **Node.js + TypeScript** que implementa uma fila de processamento assíncrono de violações de anúncios, utilizando **Fastify**, **Zod**, **BullMQ** e **Redis**.
+> **FURY** é uma API robusta e resiliente em **Node.js + TypeScript** projetada para processamento assíncrono de violações de anúncios em larga escala. A solução utiliza **Fastify** para baixa latência, **Zod** para validação estrita de contratos e **BullMQ + Redis** para gerenciamento de filas distribuídas com garantias de idempotência e tolerância a falhas.
 
 ---
 
-## 📂 Engenharia e Decisões Técnicas
+## 📚 Documentação do Projeto
 
-Para demonstrar a profundidade das decisões de engenharia adotadas neste projeto, disponibilizamos dois documentos detalhados:
+Para explorar os detalhes técnicos, decisões de design e especificações de endpoints, consulte os guias dedicados:
 
-1. **[Guia de Arquitetura](./docs/ARCHITECTURE.md)**: Explica a estrutura em camadas, o fluxo de dados dos webhooks à fila assíncrona, a estratégia de idempotência dupla e as políticas de resiliência (retry, backoff, timeouts e graceful shutdown).
-2. **[Diário de Desenvolvimento](./docs/DEVELOPMENT_LOG.md)**: Registra o processo cronológico de desenvolvimento, a metodologia de pareamento com IA, a revisão autônoma que corrigiu bugs de concorrência e as melhorias aplicadas (como health check ativo de dependência e TTL refinado do Redis).
+* 📘 **[Referência Completa da API](./docs/API.md)**: Detalhamento de todos os endpoints, payloads JSON de entrada/saída, validações de esquemas, códigos de status e exemplos de requisição com cURL.
+* 🏗️ **[Guia de Arquitetura](./docs/ARCHITECTURE.md)**: Explicação aprofundada da estrutura em camadas (Clean Architecture), fluxo de dados do webhook às filas, estratégia de idempotência dupla e tratamento de graceful shutdown.
+* 📔 **[Diário de Desenvolvimento](./docs/DEVELOPMENT_LOG.md)**: Histórico cronológico do desenvolvimento do projeto, processo de pareamento com IA, correções de concorrência e decisões de infraestrutura.
 
 ---
 
 ## 🛠️ Tecnologias Utilizadas
 
-- **Fastify 5**: Framework web de alta performance com baixo overhead e suporte assíncrono moderno.
-- **BullMQ 5 + Redis**: Engine de mensageria resiliente para enfileiramento distribuído com suporte nativo a controle de concorrência e repetição com backoff exponencial.
-- **Zod 3**: Validação de esquemas e tipagem estática e de runtime.
-- **Vitest 3**: Suite de testes rápidos e integrados com suporte nativo a ESM.
-- **Pino**: Logger estruturado de alta performance para observabilidade detalhada.
-- **TypeScript 5 (Strict)**: Segurança de tipo em todo o codebase.
-- **Docker Compose**: Orquestração local do ambiente de infraestrutura (Redis).
+* **Fastify 5**: Framework web ultrarrápido com suporte assíncrono moderno e baixo overhead.
+* **BullMQ 5 + Redis**: Gerenciamento de filas assíncronas com tratamento nativo de retentativas e concorrência.
+* **Zod 3**: Validação estrita de esquemas em tempo de execução e inferência de tipos.
+* **Vitest 3**: Framework de testes rápidos integrados com suporte nativo a ESM.
+* **Pino**: Logger estruturado de alta performance para observabilidade detalhada.
+* **Docker Compose**: Orquestração local do Redis.
 
 ---
 
 ## 🚀 Como Rodar e Testar o Projeto
 
-Siga os passos abaixo para preparar o ambiente local e iniciar a aplicação.
+Siga os passos abaixo para inicializar o ambiente local e rodar a aplicação de forma rápida.
 
 ### 1. Pré-requisitos
 * **Node.js**: Versão 18 ou superior.
-* **Docker / Docker Compose**: Para rodar o banco de dados Redis local.
+* **Docker / Docker Compose**: Para execução do Redis local.
 
-### 2. Clonar o projeto e instalar dependências
+### 2. Configuração do Ambiente
+Instale as dependências do projeto e garanta que o arquivo `.env` esteja configurado na raiz (o projeto já disponibiliza uma pré-configuração ideal por padrão):
+
 ```bash
-# Instalar os pacotes necessários
+# Instalar dependências
 npm install
 ```
 
-### 3. Configurar variáveis de ambiente
-O arquivo `.env` já vem criado na raiz do projeto e pré-configurado com os valores ideais para execução em ambiente local:
-* `PORT=3000`
-* `REDIS_URL=redis://localhost:6379`
-* `LOG_LEVEL=info`
+### 3. Execução da Infraestrutura e API
+Suba o container do Redis em segundo plano e inicie a API em modo de desenvolvimento (com hot reload):
 
-Caso precise customizar alguma configuração, basta editar diretamente o arquivo `.env`.
-
-### 4. Subir a infraestrutura (Redis)
-Utilize o Docker Compose para inicializar o serviço do Redis em background:
 ```bash
+# Iniciar o banco de dados Redis
 docker compose up -d
-```
 
-### 5. Iniciar a API em modo desenvolvimento
-Inicie a aplicação com suporte a hot reload (atualização em tempo real ao modificar arquivos):
-```bash
+# Iniciar a API em modo desenvolvimento
 npm run dev
 ```
-O servidor estará disponível em: `http://localhost:3000`
+
+A API estará disponível em: `http://localhost:3000`
 
 ---
 
 ## 🧪 Suíte de Testes e Validação
 
-O projeto possui uma estratégia de testes robusta dividida em duas grandes categorias, cobrindo todos os requisitos e cenários de falha.
+O projeto possui uma estratégia de testes dividida em duas categorias complementares:
 
 ### A. Testes Unitários e de Integração (Sem Redis)
-Estes testes rodam em milissegundos isoladamente usando mocks e dublês de teste para BullMQ e fetch HTTP. Eles cobrem:
-* Validações de limites e formatos de portas/variáveis de ambiente.
-* Regras de validação de schemas Zod.
-* Lógicas de erro de rede e comportamento de resposta do worker com chamadas HTTP simuladas.
-* Integração de rotas HTTP com o Fastify injetando requests em memória.
-
-**Comando para executar uma vez:**
+Focados na validação rápida de regras de negócio, esquemas Zod, formatação de variáveis de ambiente e rotas HTTP simuladas em memória.
 ```bash
+# Executar testes unitários uma vez
 npm test
-```
 
-**Comando para rodar em modo watch (desenvolvimento ativo):**
-```bash
+# Executar testes unitários em modo ativo (Watch)
 npm run test:watch
 ```
 
-### B. Testes End-to-End (E2E) (Com Redis e API real)
-Esta suite valida os contratos reais e a resiliência em tempo de execução. Ela levanta requisições HTTP reais contra o servidor e analisa as respostas do banco Redis e do Worker.
-* **O que é testado (33 asserções)**:
-  * Health check ativo de dependências.
-  * Criação correta de jobs na fila com ID determinístico.
-  * Rejeição de requisições malformadas (status 400).
-  * Lógica de idempotência ativa e status de conflito (status 409).
-  * Ciclo de vida completo do processamento de jobs e recuperação de status (status 200/404).
-
-**Requisitos para rodar o E2E:**
-1. A API deve estar rodando em segundo plano (`npm run dev`).
-2. O Redis deve estar rodando no Docker (`docker compose up -d`).
-
-**Comando para rodar (Windows PowerShell):**
+### B. Testes End-to-End (E2E) (Requer Redis ativo)
+Validação de ponta a ponta que realiza requisições reais contra a API ativa e verifica o comportamento das filas e a persistência de dados no Redis.
 ```bash
+# Executar a suíte de testes E2E
 npm run test:e2e
-```
-*Caso queira rodar o script PowerShell manualmente especificando um host diferente, você pode usar:*
-```bash
-powershell -ExecutionPolicy Bypass -File scripts/test-api.ps1 -BaseUrl "http://localhost:3000"
 ```
 
 ---
 
-## 💻 Todos os Comandos do Projeto (CLI)
+## 💻 Comandos Úteis (CLI)
 
 | Comando | Descrição |
 |---|---|
-| `npm run dev` | Inicia o servidor em modo de desenvolvimento com hot reload. |
-| `npm test` | Executa todos os testes unitários e de integração uma única vez. |
+| `npm run dev` | Inicia o servidor em modo de desenvolvimento com hot-reload. |
+| `npm test` | Executa os testes unitários e de integração uma única vez. |
 | `npm run test:watch` | Executa os testes unitários em modo watch. |
-| `npm run test:e2e` | Executa o script E2E de validação de rotas e fluxo contra o servidor ativo. |
-| `npm run typecheck` | Executa a validação de tipos TypeScript sem compilar os arquivos. |
+| `npm run test:e2e` | Executa o script E2E de validação de fluxo contra a API real. |
+| `npm run typecheck` | Valida a tipagem estática do TypeScript. |
 | `npm run build` | Compila o código TypeScript para JavaScript de produção (`dist/`). |
-| `npm start` | Executa o build de produção compilado na pasta `dist/` (requer `npm run build` anterior). |
+| `npm start` | Executa a build compilada em produção (requer `npm run build`). |
 
 ---
 
-## 📡 Endpoints da API
+## ⚙️ Fluxo e Resiliência Resumidos
 
-A API implementa contratos estritos e bem documentados, garantindo consistência técnica em cenários de sucesso e erro.
-
-### 1. `POST /webhook/violation`
-Recebe o sinal de violação de anúncio externa, valida o formato e coloca em fila de processamento assíncrono.
-
-* **URL**: `http://localhost:3000/webhook/violation`
-* **Método**: `POST`
-* **Content-Type**: `application/json`
-
-**Exemplo de Payload (Request):**
-```json
-{
-  "adId": "ad-123",
-  "tenantId": "tenant-456",
-  "violationType": "PROHIBITED_TERM",
-  "severity": "HIGH",
-  "detectedAt": "2026-05-21T10:00:00.000Z"
-}
-```
-
-* **Regras de Validação dos Campos**:
-  * `adId`: `string` não vazia (obrigatório).
-  * `tenantId`: `string` não vazia (obrigatório).
-  * `violationType`: deve ser um dos enums: `PROHIBITED_TERM` | `BRAND_VIOLATION` | `COMPLIANCE_FAIL`.
-  * `severity`: deve ser um dos enums: `LOW` | `MEDIUM` | `HIGH` | `CRITICAL`.
-  * `detectedAt`: string formatada em padrão ISO 8601 (obrigatório).
-
-**Respostas Possíveis**:
-* **201 Created**: Job inserido na fila assíncrona. Retorna o ID determinístico do job.
-  ```json
-  { "jobId": "ad-123_tenant-456" }
-  ```
-* **400 Bad Request**: Erro de validação de payload (Zod). Retorna o detalhamento do campo violado.
-  ```json
-  {
-    "error": "Bad request",
-    "message": "Validation failed",
-    "details": [
-      {
-        "code": "invalid_enum_value",
-        "path": ["severity"],
-        "message": "Invalid enum value..."
-      }
-    ]
-  }
-  ```
-* **409 Conflict**: Job já está na fila sendo processado ou aguardando execução. Proteção ativa de idempotência.
-  ```json
-  {
-    "error": "Conflict",
-    "message": "A takedown job for this ad and tenant is already active or waiting"
-  }
-  ```
-
-**Exemplo com cURL:**
-```bash
-curl -X POST http://localhost:3000/webhook/violation \
-  -H "Content-Type: application/json" \
-  -d '{
-    "adId": "ad-123",
-    "tenantId": "tenant-456",
-    "violationType": "PROHIBITED_TERM",
-    "severity": "HIGH",
-    "detectedAt": "2026-05-21T10:00:00.000Z"
-  }'
-```
-
----
-
-### 2. `GET /jobs/:id`
-Consulta o estado atual e o resultado de processamento de um job pelo seu identificador.
-
-* **URL**: `http://localhost:3000/jobs/:id`
-* **Método**: `GET`
-
-**Respostas Possíveis**:
-* **200 OK**: Retorna o estado do job.
-  ```json
-  {
-    "jobId": "ad-123_tenant-456",
-    "status": "completed",
-    "attempts": 0,
-    "result": { "status": 200, "ok": true },
-    "error": null
-  }
-  ```
-  *(Os possíveis valores de `status` são: `waiting`, `active`, `completed`, `failed` ou `delayed`)*
-* **404 Not Found**: ID informado não coincide com nenhum job persistido no Redis (ou já expirou do TTL).
-  ```json
-  {
-    "error": "Not found",
-    "message": "No job found with id \"ad-999_tenant-999\""
-  }
-  ```
-
-**Exemplo com cURL:**
-```bash
-curl http://localhost:3000/jobs/ad-123_tenant-456
-```
-
----
-
-### 3. `GET /health`
-Informa a saúde geral do serviço e a conectividade de dependências ativas.
-
-* **URL**: `http://localhost:3000/health`
-* **Método**: `GET`
-
-**Respostas Possíveis**:
-* **200 OK**: Aplicação e Redis operando perfeitamente.
-  ```json
-  {
-    "status": "ok",
-    "redis": "connected",
-    "timestamp": "2026-05-21T21:30:00.000Z"
-  }
-  ```
-* **503 Service Unavailable**: O servidor está de pé, mas perdeu a conexão ativa com o Redis.
-  ```json
-  {
-    "status": "degraded",
-    "redis": "disconnected",
-    "timestamp": "2026-05-21T21:30:05.000Z"
-  }
-  ```
-
-**Exemplo com cURL:**
-```bash
-curl http://localhost:3000/health
-```
-
----
-
-## ⚙️ Arquitetura Resumida e Resiliência
-
-Para mais detalhes sobre as decisões, consulte o [Guia de Arquitetura](./docs/ARCHITECTURE.md). O core do fluxo baseia-se em:
+A API foi projetada focando em resiliência e estabilidade transiente:
 
 ```
 [ Cliente HTTP ]
@@ -267,7 +104,7 @@ Para mais detalhes sobre as decisões, consulte o [Guia de Arquitetura](./docs/A
 [ Fastify Server ] ──( Validação Zod )
        │
        ▼
-[ ViolationService ] ──( Idempotência: verifica se há job ativo/waiting )
+[ ViolationService ] ──( Idempotência: rejeita se job estiver pendente/ativo )
        │
        ▼  Enfileira com ID determinístico
 [ BullMQ Queue ] ──[ Redis (Persistência) ]
@@ -276,10 +113,12 @@ Para mais detalhes sobre as decisões, consulte o [Guia de Arquitetura](./docs/A
 [ Worker / processJob ] ──( Chamada externa mockada com timeout de 8s )
 ```
 
-* **Idempotência Dinâmica**: Garantida via chaves exclusivas no BullMQ baseadas na combinação `adId_tenantId`. Se o job anterior falhou ou já concluiu, o sistema limpa o histórico antigo permitindo que uma nova violação para o mesmo anúncio seja reprocessada se reenviada.
-* **Resiliência Transiente**: Políticas de retentativa automática configuradas com **3 tentativas no máximo** e **backoff exponencial de 2 segundos** (2s, 4s, 8s).
-* **Gestão de Memória Redis**: Jobs bem-sucedidos expiram em 1 hora (`removeOnComplete: { age: 3600 }`) e falhos expiram em 24 horas (`removeOnFail: { age: 86400 }`) mantendo a fila enxuta e saudável.
-* **Desligamento Gracioso (Graceful Shutdown)**: Captura de sinais do sistema operacional (`SIGTERM` e `SIGINT`) garantindo que conexões ao Redis e processamento ativo do Worker sejam fechados limpos sem perda ou corrupção de mensagens.
+* **Idempotência**: Garantida através de identificadores determinísticos baseados na concatenação `adId_tenantId`.
+* **Políticas de Retry**: Até **3 tentativas** automáticas com **backoff exponencial** de 2 segundos (2s, 4s, 8s).
+* **Gestão de Memória**: Expiração de jobs completados após 1 hora e falhados após 24 horas no Redis.
+* **Graceful Shutdown**: Intercepção de sinais `SIGTERM` e `SIGINT` para fechamento seguro de conexões e finalização ordenada de jobs ativos.
+
+Para uma descrição completa da arquitetura do projeto, consulte o **[Guia de Arquitetura](./docs/ARCHITECTURE.md)**.
 
 ---
 
