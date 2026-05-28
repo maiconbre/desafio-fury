@@ -23,7 +23,7 @@ app.setErrorHandler((error, request, reply) => {
 
 // Composition Root
 const metaGateway = new HttpMetaGateway()
-const worker = setupWorker(metaGateway)
+const worker = setupWorker(metaGateway, connection)
 
 const queueAdapter = new BullMQTakedownQueue(takedownQueue)
 const processViolationUseCase = new ProcessViolationUseCase(queueAdapter)

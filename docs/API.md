@@ -85,7 +85,7 @@ Retornado caso os dados enviados sejam inválidos em relação ao esquema Zod.
   ```
 
 ##### **409 Conflict**
-Retornado se um processo de remoção (takedown job) para a mesma combinação de `adId` e `tenantId` já tiver sido submetido à fila, independentemente do seu estado atual (aguardando, ativo, concluído ou com falha).
+Retornado se já existir um job com a mesma combinação de `adId` e `tenantId` em estado pendente/em execução (`waiting`, `active` ou `delayed`).
 - **Corpo da Resposta**:
   ```json
   {
@@ -207,14 +207,14 @@ curl http://localhost:3000/health
 
 ---
 
-## 🧪 Script Automatizado de Teste de Integração / E2E
+## 🧪 Teste de Integração / E2E
 
-Para validar manualmente todos os fluxos e cenários de erros documentados nesta API sem precisar rodar cURL de um em um, você pode utilizar o script em PowerShell disponível no repositório.
+Para validar o fluxo completo contra a API real em execução:
 
 1. Garanta que a API esteja rodando (`npm run dev`) e o Redis esteja ativo (`docker compose up -d`).
-2. Execute o seguinte comando no terminal do Windows:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts/test-api.ps1 -BaseUrl "http://localhost:3000"
+2. Execute:
+   ```bash
+   npm run test:e2e
    ```
 
-Este script disparará sequências completas de testes simulando webhooks duplicados, payloads inválidos, consulta de status ativo e verificação de integridade, imprimindo o resultado consolidado formatado no terminal.
+Os testes E2E cobrem cenários de payload válido/inválido, idempotência, consulta de status e health check.

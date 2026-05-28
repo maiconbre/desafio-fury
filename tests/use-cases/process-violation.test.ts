@@ -64,13 +64,29 @@ describe('ProcessViolationUseCase', () => {
     await expect(useCase.execute(validPayload)).rejects.toThrow(ConflictError)
   })
 
-  it.each(['waiting', 'active', 'delayed', 'completed', 'failed'] as const)(
-    'throws ConflictError regardless of existing job status: %s',
+  it.each(['waiting', 'active', 'delayed'] as const)(
+    'throws ConflictError for blocking status: %s',
     async (status) => {
       const job = await queue.addJob('ad-123_tenant-456', validPayload)
       job.status = status
 
       await expect(useCase.execute(validPayload)).rejects.toThrow(ConflictError)
+    },
+  )
+
+  it.each(['completed', 'failed'] as const)(
+    'allows reprocessing for terminal status by recreating job: %s',
+    async (status) => {
+      const job = await queue.addJob('ad-123_tenant-456', validPayload)
+      job.status = status
+
+      const result = await useCase.execute(validPayload)
+      const recreatedJob = await queue.getJob('ad-123_tenant-456')
+
+      expect(result).toEqual({ jobId: 'ad-123_tenant-456' })
+      expect(queue.addCalls).toHaveLength(2)
+      expect(recreatedJob).not.toBeNull()
+      expect(recreatedJob?.status).toBe('waiting')
     },
   )
 

@@ -1,8 +1,8 @@
 import { Worker } from 'bullmq'
-import { connection } from './connection.js'
 import { logger } from '../logging/logger.js'
 import type { ViolationPayload, TakedownResult } from '../../domain/models/violation.js'
 import { MetaGatewayPort } from '../../domain/ports/meta-gateway.port.js'
+import type { Redis } from 'ioredis'
 
 export function createProcessJob(metaGateway: MetaGatewayPort) {
   return async (job: { data: ViolationPayload }): Promise<TakedownResult> => {
@@ -11,11 +11,14 @@ export function createProcessJob(metaGateway: MetaGatewayPort) {
   }
 }
 
-export function setupWorker(metaGateway: MetaGatewayPort): Worker<ViolationPayload> {
+export function setupWorker(
+  metaGateway: MetaGatewayPort,
+  redisConnection: Redis,
+): Worker<ViolationPayload> {
   const processJob = createProcessJob(metaGateway)
 
   const worker = new Worker<ViolationPayload>('takedown', processJob, {
-    connection,
+    connection: redisConnection,
     concurrency: 1,
     lockDuration: 30000,
     stalledInterval: 15000,

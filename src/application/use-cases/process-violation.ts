@@ -9,6 +9,10 @@ export interface ViolationResult {
 export class ProcessViolationUseCase {
   constructor(private readonly queue: TakedownQueuePort) {}
 
+  private isBlockingState(status: string): boolean {
+    return status === 'waiting' || status === 'active' || status === 'delayed'
+  }
+
   async execute(body: unknown): Promise<ViolationResult> {
     const parsed = violationSchema.safeParse(body)
 
@@ -31,10 +35,16 @@ export class ProcessViolationUseCase {
     try {
       const existingJob = await this.queue.getJob(jobId)
 
-      if (existingJob) {
+      if (existingJob && this.isBlockingState(existingJob.status)) {
         throw new ConflictError(
           `A job for adId "${adId}" and tenantId "${tenantId}" already exists`,
         )
+      }
+
+      // Permite reprocessamento após estado terminal para aderir ao requisito
+      // de idempotência apenas para jobs pendentes/em execução.
+      if (existingJob && !this.isBlockingState(existingJob.status)) {
+        await existingJob.remove()
       }
 
       const job = await this.queue.addJob(jobId, parsed.data)

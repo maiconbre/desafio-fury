@@ -51,7 +51,7 @@ fury/
 │   └── server.ts                           # Composition Root + bootstrap + graceful shutdown com timeout
 │
 ├── tests/
-│   ├── env.test.ts                         # Testes unitários de requireEnv / requirePort
+│   ├── env.test.ts                         # Testes unitários de validação do envSchema (Zod)
 │   ├── violation.test.ts                   # Testes unitários do schema Zod
 │   ├── http-meta-gateway.test.ts           # [NEW] Testes unitários do gateway HTTP espiando o fetch
 │   ├── worker.test.ts                      # Testes unitários de processJob (desacoplados, gateway mockado)
@@ -175,7 +175,7 @@ Cliente HTTP
 
 ### `src/config/env.ts`
 
-Funções `requireEnv` e `requirePort` validam as variáveis de ambiente na inicialização. Erros de configuração falham rápido (fail-fast) antes de o servidor escutar requisições.
+O `envSchema` (Zod) valida as variáveis de ambiente na inicialização. Erros de configuração falham rápido (fail-fast) antes de o servidor escutar requisições.
 
 ### `src/domain/models/violation.ts`
 
@@ -278,7 +278,7 @@ Ao receber `SIGTERM` ou `SIGINT`:
 |---|---|---|---|
 | Unitário — Schema | Vitest | Não | Validação Zod para todos os casos de borda |
 | Unitário — Worker | Vitest + `vi.spyOn(fetch)` | Não | processJob: 2xx, 4xx/5xx, erro de rede |
-| Unitário — Env | Vitest | Não | requireEnv / requirePort: edge cases de configuração |
+| Unitário — Env | Vitest | Não | envSchema: edge cases de configuração |
 | Unitário — Use Cases | Vitest + InMemory adapter | Não | Lógica de negócio sem infraestrutura |
 | Integração — API | Vitest + `fastify.inject` + InMemory adapter | Não | Rotas HTTP completas com adapter em memória |
 | E2E | Vitest + API real | **Sim** | Fluxo completo de conectividade, concorrência por locks, Zod validation e status da API real |
