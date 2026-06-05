@@ -1,35 +1,95 @@
-SaaS Architecture Specification
+🚀 Especificação de Arquitetura do SaaS
 
-Version 1.0
+Versão: 0.1
 
-⸻
+Objetivo: Construir um SaaS moderno de gerenciamento de anúncios com alta performance, baixo custo operacional e escalabilidade gradual.
 
-1. Objetivo
-
-Construir um SaaS moderno de gerenciamento de anúncios, priorizando:
-
-* Alta performance;
-* Baixo custo operacional;
-* Código limpo;
-* Arquitetura DDD;
-* Escalabilidade gradual;
-* Simplicidade de manutenção;
-* Deploy contínuo.
-
-O projeto deverá ser capaz de crescer de uma única VPS para uma arquitetura distribuída sem necessidade de reescrita.
+Filosofia: Simplicidade primeiro. Escalar somente quando necessário.
 
 ⸻
 
-2. Stack Oficial
+📚 Sumário
+
+* Visão Geral
+* Filosofia da Arquitetura
+* Stack Tecnológica
+* Infraestrutura
+* Arquitetura Geral
+* Ciclo de Vida das Requisições
+* Estrutura DDD
+* Estratégia do Banco de Dados
+* Redis & BullMQ
+* Git Flow
+* CI/CD
+* Observabilidade
+* Estratégia de Backup
+* Planejamento de Capacidade
+* Roadmap de Escalabilidade
+* Princípios de Desenvolvimento
+* Objetivo Final
+
+⸻
+
+🎯 Visão Geral
+
+Este projeto tem como objetivo fornecer uma plataforma SaaS altamente performática para gerenciamento de anúncios, capaz de suportar milhares de usuários mantendo:
+
+* Código Limpo (Clean Code)
+* DDD (Domain Driven Design)
+* SOLID
+* Alta Performance
+* Baixo Custo Operacional
+* Deploy Contínuo
+* Facilidade de Manutenção
+* Escalabilidade Horizontal
+
+⸻
+
+⚡ Filosofia da Arquitetura
+
+A API nunca deve executar tarefas pesadas.
+
+Fluxo ideal
+
+Cliente
+   │
+   ▼
+API
+   │
+   ├── Validação
+   ├── Persistência no PostgreSQL
+   ├── Criação do Job no BullMQ
+   │
+   └── Retorna HTTP 200
+
+Worker:
+
+Worker
+   │
+   ├── IA
+   ├── Marketplace
+   ├── Notificações
+   ├── E-mails
+   └── Atualização Dashboard
+
+⸻
+
+Regra de Ouro
+
+Se uma operação levar mais de aproximadamente 300ms, ela deve ser considerada para processamento assíncrono via BullMQ.
+
+⸻
+
+🛠 Stack Tecnológica
 
 Frontend
 
 * Next.js
 * TypeScript
 * TailwindCSS
+* TanStack Query
 * React Hook Form
 * Zod
-* TanStack Query
 
 ⸻
 
@@ -39,125 +99,59 @@ Backend
 * Fastify
 * TypeScript
 
-Padrões:
+Padrões utilizados:
 
 * DDD
 * SOLID
 * Repository Pattern
 * Use Cases
 * Dependency Injection
-* Event Driven (leve)
+* Arquitetura orientada a eventos (Event Driven)
 
 ⸻
 
-Banco
+Banco de Dados
 
 * PostgreSQL
 * Prisma ORM
-
-Características:
-
-* UUID
-* Soft Delete
-* Audit Fields
-* Migrations versionadas
 
 ⸻
 
 Cache e Filas
 
-Redis
-
-Responsável por:
-
+* Redis
 * BullMQ
-* Cache
-* Rate Limiting
-* Sessões futuras
-* Distributed Locks futuros
 
 ⸻
 
-BullMQ
+Infraestrutura
 
-Toda tarefa pesada deverá ser executada através de filas.
-
-Filas iniciais:
-
-* ads-processing
-* ads-publish
-* dashboard-update
-* notifications
-* emails
-* webhooks
-* analytics
+* Ubuntu Server 24.04 LTS
+* Docker
+* Docker Compose
+* Coolify
+* Traefik
 
 ⸻
 
-3. Filosofia Arquitetural
+Observabilidade
 
-Regra principal
-
-A API nunca deve executar tarefas demoradas.
-
-Fluxo ideal:
-
-Cliente
-   │
-   ▼
-API
-   │
-   ├── Validação
-   ├── PostgreSQL
-   ├── BullMQ.add()
-   │
-   └── HTTP 200
-            │
-            ▼
-         Worker
-            │
-            ├── IA
-            ├── Marketplace
-            ├── Notificações
-            └── Dashboard
+* Uptime Kuma
+* Sentry
+* Pino Logger
 
 ⸻
 
-Operações síncronas
+🖥 Infraestrutura Inicial
 
-* Login
-* Cadastro
-* Atualizar Perfil
-* Buscar Dados
-* Consultar Dashboard (cache)
-
-⸻
-
-Operações assíncronas
-
-* Publicação de anúncios
-* Processamento IA
-* Geração de PDF
-* Envio WhatsApp
-* Envio Email
-* Webhooks
-* Atualização Dashboard
-* Analytics
-* Importação CSV
-
-⸻
-
-4. Infraestrutura
-
-VPS Inicial
-
-KVM 4
+Servidor
 
 Recurso	Valor
 CPU	4 vCPU
 RAM	16 GB
 Disco	200 GB NVMe
-SO	Ubuntu 24.04
+Virtualização	KVM
+Sistema Operacional	Ubuntu 24.04 LTS
 
 ⸻
 
@@ -173,20 +167,77 @@ uptime-kuma
 
 ⸻
 
-Reverse Proxy
+🏗 Arquitetura Geral
 
-Coolify + Traefik
-
-Responsável por:
-
-* SSL
-* HTTPS
-* Deploy
-* Domínios
+                    Cloudflare
+                         │
+                    HTTPS
+                         │
+                    Traefik
+                         │
+          ┌──────────────┴──────────────┐
+          │                             │
+          ▼                             ▼
+     Frontend                      Backend API
+     (Next.js)                     (Fastify)
+                                         │
+                 ┌───────────────────────┼────────────────────────┐
+                 ▼                       ▼                        ▼
+           PostgreSQL                Redis                  BullMQ
+                                                                  │
+                                                      ┌───────────┴───────────┐
+                                                      ▼                       ▼
+                                                 Worker 1               Worker N
 
 ⸻
 
-5. Estrutura DDD
+🔄 Ciclo de Vida das Requisições
+
+Operação de Leitura
+
+Cliente
+   │
+   ▼
+API
+   │
+Redis Cache
+   │
+Hit ? ─────────────► Retorna
+   │
+Miss
+   │
+PostgreSQL
+   │
+Atualiza Cache
+   │
+Retorna
+
+⸻
+
+Operação de Escrita
+
+Cliente
+   │
+   ▼
+API
+   │
+PostgreSQL
+   │
+BullMQ.add()
+   │
+HTTP 200
+          │
+          ▼
+      Worker
+          │
+          ├── IA
+          ├── Marketplace
+          ├── Email
+          └── Dashboard
+
+⸻
+
+🧩 Domain Driven Design (DDD)
 
 src/
 modules/
@@ -200,35 +251,47 @@ modules/
 ├── notifications/
 └── analytics/
 shared/
-├── database/
 ├── cache/
-├── queue/
-├── events/
 ├── config/
+├── database/
+├── events/
 ├── http/
+├── queue/
 └── utils/
-
-Cada módulo:
-
-domain/
-application/
-infrastructure/
-presentation/
 
 ⸻
 
-6. Banco de Dados
+Estrutura de um módulo
 
-Todos os modelos:
+ads/
+├── domain/
+├── application/
+├── infrastructure/
+└── presentation/
+
+⸻
+
+🗄 Estratégia do Banco de Dados
+
+Regras
+
+* UUID como chave primária.
+* Soft Delete.
+* Campos de auditoria.
+* Migrations versionadas.
+
+⸻
+
+Entidade Base
 
 id String @id @default(uuid())
 createdAt DateTime @default(now())
 updatedAt DateTime @updatedAt
 deletedAt DateTime?
 
-Nunca realizar alterações manuais.
+⸻
 
-Fluxo:
+Fluxo de Migrations
 
 schema.prisma
       │
@@ -236,7 +299,7 @@ schema.prisma
 prisma migrate dev
       │
       ▼
-Commit Migration
+Commit
       │
       ▼
 CI/CD
@@ -246,67 +309,52 @@ Produção
 
 ⸻
 
-7. Redis
+🚀 Estratégia do Redis
 
-Responsabilidades:
+O Redis será responsável por:
 
-BullMQ
-
-Fila principal da aplicação.
-
-⸻
-
-Cache
-
-Dashboard:
-
-TTL: 30 segundos
-
-Analytics:
-
-TTL: 60 segundos
-
-Relatórios:
-
-TTL: 300 segundos
+* BullMQ
+* Cache Dashboard
+* Rate Limiting
+* Sessões futuras
+* Distributed Locks futuros
 
 ⸻
 
-Rate Limit
+TTL do Cache
 
-Login.
-
-API pública.
-
-Webhooks.
-
-⸻
-
-8. Dashboard
-
-Nunca realizar agregações pesadas em tempo real.
-
-Fluxo:
-
-Evento
-   │
-BullMQ
-   │
-Atualiza Métricas
-   │
-Redis
-   │
-Dashboard lê cache
-
-Objetivo:
-
-Tempo médio:
-
-5 ~ 30 ms.
+Recurso	TTL
+Dashboard	30 segundos
+Analytics	60 segundos
+Relatórios	300 segundos
 
 ⸻
 
-9. Git Flow
+⚙ Estratégia BullMQ
+
+Filas
+
+ads-processing
+ads-publish
+dashboard-update
+emails
+notifications
+analytics
+webhooks
+
+⸻
+
+Workers
+
+worker
+├── ads
+├── notifications
+├── emails
+└── analytics
+
+⸻
+
+🌳 Git Flow
 
 Branches
 
@@ -317,42 +365,46 @@ hotfix/*
 
 ⸻
 
-Desenvolvimento
+Fluxo de Desenvolvimento
 
 feature/create-ad
-        │
-        ▼
-    develop
-        │
-(beta.seusaas.com)
-        │
-        ▼
-      main
-(app.seusaas.com)
+          │
+          ▼
+      develop
+          │
+          ▼
+ beta.seusaas.com
+          │
+          ▼
+        main
+          │
+          ▼
+ app.seusaas.com
 
 ⸻
 
-Hotfix
+Fluxo de Hotfix
 
 hotfix/login
-       │
-       ▼
-     main
-       │
-       ▼
+      │
+      ▼
+    main
+      │
+      ▼
    develop
-
-Regras:
-
-* Feature nasce em feature/*
-* Merge em develop
-* Teste ambiente Beta
-* Merge em main
-* Hotfix nasce em main
 
 ⸻
 
-10. CI/CD
+Regras
+
+* Nunca desenvolver diretamente na develop.
+* Nunca criar hotfix a partir da develop.
+* Toda feature deve possuir Pull Request.
+* Produção recebe deploy apenas pela main.
+
+⸻
+
+🔥 CI/CD
 
 GitHub Actions.
 
@@ -366,28 +418,26 @@ Prisma Generate
 Docker Build
 Deploy
 
-Deploy automático:
+⸻
 
-develop -> Beta
+Ambientes
 
-main -> Produção
+Branch	Ambiente
+develop	Beta
+main	Produção
 
 ⸻
 
-11. Observabilidade
+📈 Observabilidade
 
 Uptime Kuma
 
 Monitorar:
 
 * Frontend
-* API
+* Backend
 * PostgreSQL
 * Redis
-
-Alerta:
-
-Telegram.
 
 ⸻
 
@@ -395,9 +445,7 @@ Logs
 
 Pino Logger.
 
-Formato JSON.
-
-Campos:
+Campos obrigatórios:
 
 * requestId
 * userId
@@ -407,61 +455,72 @@ Campos:
 
 ⸻
 
-Error Tracking
+Rastreamento de Erros
 
 Sentry.
 
+Capturar:
+
+* Exceptions
+* Stack Traces
+* Performance
+
 ⸻
 
-12. Backup
+💾 Estratégia de Backup
 
 Diariamente:
 
 pg_dump
 
-Compactar.
+Compactação:
 
-Enviar para Cloudflare R2.
+tar -czf backup.tar.gz
+
+Destino:
+
+* Cloudflare R2
 
 Política:
 
-* 7 diários
-* 4 semanais
-* 3 mensais
+Tipo	Quantidade
+Diário	7
+Semanal	4
+Mensal	3
 
 ⸻
 
-13. Capacity Planning
+📊 Planejamento de Capacidade
 
-Consumo médio esperado
+Consumo Médio de Memória
 
 Serviço	RAM
 Ubuntu	800 MB
 Coolify	400 MB
-Next	300 MB
-API	400 MB
+Frontend	300 MB
+Backend	400 MB
 Worker	300 MB
-PostgreSQL	1.5 GB
+PostgreSQL	1.500 MB
 Redis	500 MB
 Uptime Kuma	150 MB
 
 Total aproximado:
 
-4.5 GB
+≈ 4,5 GB
 
-Memória livre:
+Memória disponível:
 
-11 GB
+≈ 11 GB
 
 ⸻
 
-14. Capacidade Estimada
+👥 Capacidade Estimada
 
 MVP
 
-* 100 clientes
-* 1.000 usuários
-* 20 simultâneos
+* 100 clientes pagantes
+* 1.000 usuários cadastrados
+* 20 usuários simultâneos
 
 CPU:
 
@@ -473,9 +532,9 @@ RAM:
 
 ⸻
 
-Crescimento
+Validação
 
-* 300 clientes
+* 300 clientes pagantes
 * 5.000 usuários
 * 50 simultâneos
 
@@ -489,9 +548,9 @@ RAM:
 
 ⸻
 
-Expansão
+Crescimento
 
-* 800 clientes
+* 800 clientes pagantes
 * 15.000 usuários
 * 150 simultâneos
 
@@ -505,7 +564,7 @@ RAM:
 
 ⸻
 
-Limite confortável
+Limite Confortável
 
 * 2.000 clientes pagantes
 * 30.000 usuários cadastrados
@@ -521,13 +580,13 @@ RAM:
 
 ⸻
 
-15. Throughput BullMQ
+📦 Throughput BullMQ
 
-Jobs leves:
+Jobs Leves
 
+* Cache
 * Emails
 * Dashboard
-* Cache
 
 Capacidade:
 
@@ -535,94 +594,90 @@ Capacidade:
 
 ⸻
 
-Jobs médios:
+Jobs Médios
 
-* Publicação anúncios
-* Sincronização
+* Publicação de anúncios
+* Sincronização Marketplace
+
+Capacidade:
 
 30.000 ~ 80.000 jobs/dia
 
 ⸻
 
-Jobs IA:
+Jobs Pesados
 
-* Descrições
-* Processamento imagens
+* IA
+* Processamento de Imagens
+
+Capacidade:
 
 5.000 ~ 20.000 jobs/dia
 
 ⸻
 
-16. Estratégia de Escalabilidade
+📈 Roadmap de Escalabilidade
 
 Estágio 1
 
 Frontend
-API
+Backend
 Worker
 PostgreSQL
 Redis
 
 Até:
 
-* 300 simultâneos
-* 2.000 clientes
+* 300 usuários simultâneos
+* 2.000 clientes pagantes
 
 ⸻
 
 Estágio 2
 
-Adicionar Workers:
+Adicionar Workers
 
 Worker-1
 Worker-2
 Worker-3
 
-Sem alterar API.
+Até:
 
-Capacidade:
-
-500 simultâneos.
+* 500 usuários simultâneos
 
 ⸻
 
 Estágio 3
 
-Separar Banco.
+Separar Banco de Dados
 
-VPS APP:
+VPS APP
+Frontend
+Backend
+Workers
+-----------------
+VPS DATA
+PostgreSQL
+Redis
 
-* Frontend
-* API
-* Workers
+Até:
 
-VPS DATA:
-
-* PostgreSQL
-* Redis
-
-Capacidade:
-
-800 simultâneos.
-
-5.000 clientes.
+* 800 usuários simultâneos
+* 5.000 clientes pagantes
 
 ⸻
 
 Estágio 4
 
-Escalabilidade Horizontal.
+Escalabilidade Horizontal
 
-          Load Balancer
-        API-1
-        API-2
-        API-3
-Worker-1
-Worker-2
-Worker-3
-Worker-4
-PostgreSQL
-Redis
+             Load Balancer
+          ┌──────┴──────┐
+        API-1      API-2
+          ┌──────┴──────┐
+     Worker1 Worker2 Worker3
+            PostgreSQL
+               Redis
 
 Capacidade estimada:
 
@@ -631,31 +686,60 @@ Capacidade estimada:
 
 ⸻
 
-17. Princípios Definitivos
+📏 Princípios de Desenvolvimento
 
-1. API apenas orquestra.
-2. PostgreSQL é a fonte de verdade.
-3. Redis acelera leituras.
-4. BullMQ executa trabalhos.
-5. Dashboard nunca calcula em tempo real.
-6. Toda integração externa é assíncrona.
-7. Crescimento ocorre adicionando Workers.
-8. Simplicidade é prioridade sobre complexidade.
-9. DDD organiza o domínio.
-10. A arquitetura deve permitir crescimento sem reescrita.
+API
+
+* Rápida
+* Stateless
+* Leve
 
 ⸻
 
-Filosofia Final
+PostgreSQL
 
-API responde rápido.
+* Fonte única da verdade
 
-Workers trabalham pesado.
+⸻
 
-Redis entrega velocidade.
+Redis
 
-PostgreSQL garante consistência.
+* Camada de velocidade
 
-BullMQ absorve a carga.
+⸻
 
-A simplicidade é a principal estratégia de escalabilidade.
+BullMQ
+
+* Camada de processamento pesado
+
+⸻
+
+Dashboard
+
+Nunca calcular métricas em tempo real.
+
+Sempre utilizar projeções em cache.
+
+⸻
+
+🎯 Princípios Arquiteturais
+
+A API orquestra.
+
+O PostgreSQL armazena.
+
+O Redis acelera.
+
+O BullMQ processa.
+
+Os Workers escalam.
+
+A simplicidade vence.
+
+⸻
+
+🚀 Objetivo Final
+
+Construir um SaaS capaz de evoluir de uma única VPS KVM para uma arquitetura distribuída, mantendo a mesma base de código, a mesma organização arquitetural e a mesma simplicidade operacional.
+
+Escalar adicionando Workers, e não complexidade.
